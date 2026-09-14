@@ -67,6 +67,21 @@ function testLayer(
 }
 
 describe("installation", () => {
+  testEffect(
+    testLayer(
+      () => jsonResponse({}),
+      (cmd) => {
+        if (cmd === "npm") return "opencode-ai@1.0.0"
+        if (cmd === "pnpm") return "@rikalabs/opencode@2.0.0"
+        return ""
+      },
+    ),
+  ).effect("detects the fork installation rather than an upstream installation", () =>
+    Effect.gen(function* () {
+      expect(yield* Installation.use.method()).toBe("pnpm")
+    }),
+  )
+
   describe("latest", () => {
     testEffect(testLayer(() => jsonResponse({ tag_name: "v1.2.3" }))).effect(
       "reads release version from GitHub releases",
@@ -96,7 +111,7 @@ describe("installation", () => {
       Effect.gen(function* () {
         const result = yield* Installation.use.latest("npm")
         expect(result).toBe("1.5.0")
-        expect(npmCalls).toContain(`https://registry.npmjs.org/opencode-ai/${InstallationChannel}`)
+        expect(npmCalls).toContain(`https://registry.npmjs.org/@rikalabs%2fopencode/${InstallationChannel}`)
       }),
     )
 
@@ -110,7 +125,7 @@ describe("installation", () => {
       Effect.gen(function* () {
         const result = yield* Installation.use.latest("bun")
         expect(result).toBe("1.6.0")
-        expect(bunCalls).toContain(`https://registry.npmjs.org/opencode-ai/${InstallationChannel}`)
+        expect(bunCalls).toContain(`https://registry.npmjs.org/@rikalabs%2fopencode/${InstallationChannel}`)
       }),
     )
 
@@ -124,7 +139,7 @@ describe("installation", () => {
       Effect.gen(function* () {
         const result = yield* Installation.use.latest("pnpm")
         expect(result).toBe("1.7.0")
-        expect(pnpmCalls).toContain(`https://registry.npmjs.org/opencode-ai/${InstallationChannel}`)
+        expect(pnpmCalls).toContain(`https://registry.npmjs.org/@rikalabs%2fopencode/${InstallationChannel}`)
       }),
     )
 
@@ -182,6 +197,24 @@ describe("installation", () => {
   })
 
   describe("upgrade", () => {
+    for (const method of ["npm", "pnpm", "bun"] as const) {
+      const calls: string[][] = []
+      testEffect(
+        testLayer(
+          () => jsonResponse({}),
+          (cmd, args) => {
+            calls.push([cmd, ...args])
+            return ""
+          },
+        ),
+      ).effect(`keeps ${method} upgrades on the fork package`, () =>
+        Effect.gen(function* () {
+          yield* Installation.use.upgrade(method, "2.3.4")
+          expect(calls).toContainEqual([method, "install", "-g", "@rikalabs/opencode@2.3.4"])
+        }),
+      )
+    }
+
     testEffect(
       testLayer(
         () => jsonResponse({}),

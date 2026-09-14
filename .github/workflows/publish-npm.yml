@@ -1,0 +1,54 @@
+name: publish npm
+run-name: "Publish @rikalabs/opencode ${{ inputs.version }} (${{ inputs.channel }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Exact npm version, without a v prefix (for example 0.1.0)"
+        required: true
+        type: string
+      channel:
+        description: "npm dist-tag"
+        required: true
+        default: latest
+        type: choice
+        options:
+          - latest
+          - next
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.repository == 'rika-labs/opencode'
+    runs-on: ubuntu-24.04
+    env:
+      OPENCODE_VERSION: ${{ inputs.version }}
+      OPENCODE_CHANNEL: ${{ inputs.channel }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Validate version
+        run: |
+          bun -e 'import semver from "semver"; const v = process.env.OPENCODE_VERSION; if (semver.valid(v) !== v) throw new Error("Use an exact semver without a v prefix")'
+
+      - name: Build CLI packages
+        run: bun ./packages/opencode/script/build.ts
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish CLI packages to npm
+        run: bun ./packages/opencode/script/publish.ts --npm-only
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
