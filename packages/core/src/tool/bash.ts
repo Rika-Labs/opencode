@@ -7,6 +7,7 @@ import { ChildProcess } from "effect/unstable/process"
 import { Config } from "../config"
 import { makeLocationNode } from "../effect/app-node"
 import { FSUtil } from "../fs-util"
+import { Location } from "../location"
 import { LocationMutation } from "../location-mutation"
 import { AppProcess } from "../process"
 import { PermissionV2 } from "../permission"
@@ -14,6 +15,7 @@ import { PositiveInt } from "../schema"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
+import { WorkspaceFileSystem, WorkspaceProcess } from "../workspace-capability"
 
 export const name = "bash"
 export const DEFAULT_TIMEOUT_MS = 2 * 60 * 1_000
@@ -98,15 +100,16 @@ const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
     const mutation = yield* LocationMutation.Service
-    const fs = yield* FSUtil.Service
-    const appProcess = yield* AppProcess.Service
+    const fs = yield* WorkspaceFileSystem.Service
+    const appProcess = yield* WorkspaceProcess.Service
     const config = yield* Config.Service
     const permission = yield* PermissionV2.Service
+    const location = yield* Location.Service
 
     yield* tools
       .register({
         [name]: Tool.make({
-          description: `Execute one shell command string with the host user's filesystem, process, and network authority. The active Location is the default working directory. Relative workdir values resolve from that Location. External workdir values require external_directory approval; best-effort command-argument path warnings are advisory only. Timeout values are milliseconds (default: ${DEFAULT_TIMEOUT_MS}; maximum: ${MAX_TIMEOUT_MS}). Uses the configured shell when set; otherwise uses /bin/sh on POSIX and COMSPEC or cmd.exe on Windows.`,
+          description: `Execute one shell command string with ${location.workspaceID ? "the selected workspace backend's" : "the host user's"} filesystem, process, and network authority. The active Location is the default working directory. Relative workdir values resolve from that Location. External workdir values require external_directory approval; best-effort command-argument path warnings are advisory only. Timeout values are milliseconds (default: ${DEFAULT_TIMEOUT_MS}; maximum: ${MAX_TIMEOUT_MS}). Uses the configured shell when set; otherwise uses /bin/sh for managed workspaces and POSIX hosts, and COMSPEC or cmd.exe on local Windows hosts.`,
           input: Input,
           output: Output,
           structured: StructuredOutput,
@@ -137,7 +140,7 @@ const layer = Layer.effectDiscard(
                 })
               const warnings = (yield* externalCommandDirectories(fs, input.command, target.canonical)).map(
                 (directory) =>
-                  `Command argument references external directory ${path.join(directory, "*").replaceAll("\\", "/")}. Bash runs with host-user filesystem, process, and network authority; this scan is advisory only.`,
+                  `Command argument references external directory ${path.join(directory, "*").replaceAll("\\", "/")}. Bash runs with ${location.workspaceID ? "workspace-backend" : "host-user"} filesystem, process, and network authority; this scan is advisory only.`,
               )
               yield* permission.assert({
                 action: name,
@@ -154,13 +157,14 @@ const layer = Layer.effectDiscard(
               const entries = yield* config.entries()
               const shell =
                 Object.assign({}, ...entries.flatMap((entry) => (entry.type === "document" ? [entry.info] : [])))
-                  .shell ?? defaultShell()
+                  .shell ?? (location.workspaceID ? "/bin/sh" : defaultShell())
               const command = ChildProcess.make(input.command, [], {
                 cwd: target.canonical,
                 shell,
                 stdin: "ignore",
-                detached: process.platform !== "win32",
-                forceKillAfter: Duration.seconds(3),
+                ...(location.workspaceID
+                  ? {}
+                  : { detached: process.platform !== "win32", forceKillAfter: Duration.seconds(3) }),
               })
               const timeout = input.timeout ?? DEFAULT_TIMEOUT_MS
               const result = yield* appProcess
@@ -203,5 +207,13 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/bash",
   layer,
-  deps: [ToolRegistry.node, LocationMutation.node, FSUtil.node, AppProcess.node, Config.node, PermissionV2.node],
+  deps: [
+    ToolRegistry.node,
+    LocationMutation.node,
+    WorkspaceFileSystem.node,
+    WorkspaceProcess.node,
+    Config.node,
+    PermissionV2.node,
+    Location.node,
+  ],
 })

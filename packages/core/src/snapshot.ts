@@ -247,6 +247,22 @@ export const noopLayer = Layer.succeed(
   }),
 )
 
+export const unsupportedLayer = Layer.succeed(
+  Service,
+  Service.of({
+    capture: () => Effect.succeed(undefined),
+    files: () => unsupported("files"),
+    diff: () => unsupported("diff"),
+    preview: () => unsupported("preview"),
+    restore: () => unsupported("restore"),
+    checkout: () => unsupported("restore"),
+  }),
+)
+
+function unsupported(operation: Error["operation"]): Effect.Effect<never, Error> {
+  return Effect.fail(new Error({ operation, message: "Snapshots are unsupported for managed workspaces" }))
+}
+
 function failure(operation: Error["operation"], cause: unknown) {
   if (cause instanceof Error && cause.operation === operation) return cause
   return new Error({

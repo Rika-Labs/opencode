@@ -7,6 +7,7 @@ import { Effect, Layer, Schema } from "effect"
 import { makeLocationNode } from "../effect/app-node"
 import { FileMutation } from "../file-mutation"
 import { FSUtil } from "../fs-util"
+import { WorkspaceFileSystem } from "../workspace-capability"
 import { LocationMutation } from "../location-mutation"
 import { Patch } from "../patch"
 import { PermissionV2 } from "../permission"
@@ -61,7 +62,7 @@ const layer = Layer.effectDiscard(
     const tools = yield* Tools.Service
     const mutation = yield* LocationMutation.Service
     const files = yield* FileMutation.Service
-    const fs = yield* FSUtil.Service
+    const fs = yield* WorkspaceFileSystem.Service
     const permission = yield* PermissionV2.Service
 
     yield* tools
@@ -199,7 +200,7 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/apply-patch",
   layer,
-  deps: [ToolRegistry.node, LocationMutation.node, FileMutation.node, FSUtil.node, PermissionV2.node],
+  deps: [ToolRegistry.node, LocationMutation.node, FileMutation.node, WorkspaceFileSystem.node, PermissionV2.node],
 })
 
 function patchFile(change: Prepared): typeof FileDiff.Info.Type {

@@ -5,6 +5,7 @@ import { Effect, Layer, Schema } from "effect"
 import path from "path"
 import { makeLocationNode } from "../effect/app-node"
 import { FileSystem } from "../filesystem"
+import { FileSystemSearch } from "../filesystem/search"
 import { FSUtil } from "../fs-util"
 import { Location } from "../location"
 import { PermissionV2 } from "../permission"
@@ -53,6 +54,7 @@ export const toModelOutput = (output: ModelOutput) => {
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
+    const search = yield* FileSystemSearch.Service
     const fs = yield* FSUtil.Service
     const ripgrep = yield* Ripgrep.Service
     const location = yield* Location.Service
@@ -92,11 +94,13 @@ const layer = Layer.effectDiscard(
                 agent: context.agent,
                 source: { type: "tool", messageID: context.assistantMessageID, callID: context.toolCallID },
               })
+              if (location.workspaceID) return yield* search.grep(input)
               const target = path.resolve(location.directory, input.path ?? ".")
               const info = yield* fs.stat(target).pipe(Effect.catch(() => Effect.succeed(undefined)))
+              const cwd = info?.type === "Directory" ? target : path.dirname(target)
               return yield* ripgrep
                 .grep({
-                  cwd: info?.type === "Directory" ? target : path.dirname(target),
+                  cwd,
                   pattern: input.pattern,
                   file: info?.type === "File" ? path.basename(target) : undefined,
                   include: input.include,
@@ -109,15 +113,7 @@ const layer = Layer.effectDiscard(
                         ...match,
                         entry: FileSystem.Entry.make({
                           ...match.entry,
-                          path: RelativePath.make(
-                            path.relative(
-                              location.directory,
-                              path.resolve(
-                                info?.type === "Directory" ? target : path.dirname(target),
-                                match.entry.path,
-                              ),
-                            ),
-                          ),
+                          path: RelativePath.make(path.relative(location.directory, path.resolve(cwd, match.entry.path))),
                         }),
                       }),
                     ),
@@ -133,5 +129,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/grep",
   layer,
-  deps: [ToolRegistry.node, FSUtil.node, Ripgrep.node, Location.node, PermissionV2.node],
+  deps: [ToolRegistry.node, FileSystemSearch.node, FSUtil.node, Ripgrep.node, Location.node, PermissionV2.node],
 })

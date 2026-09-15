@@ -1,0 +1,36 @@
+{
+  "name": "@opencode-ai/rivet",
+  "version": "1.18.30",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build:test:node": "bun run script/build-node-tests.ts",
+    "test": "bun test --timeout=30000 test/*.test.ts",
+    "test:node": "bun run build:test:node && node --import tsx script/run-node-tests.ts",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@opencode-ai/core": "workspace:*",
+    "@rivet-dev/agentos-core": "link:@rivet-dev/agentos-core",
+    "@rivetkit/effect": "2.3.17",
+    "effect": "catalog:",
+    "fuzzysort": "catalog:",
+    "rivetkit": "2.3.17",
+    "sandbox-agent": "0.4.2"
+  },
+  "devDependencies": {
+    "@rivet-dev/agentos-runtime-core": "link:@rivet-dev/agentos-runtime-core",
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "tsx": "4.23.13"
+  },
+  "optionalDependencies": {
+    "@daytonaio/sdk": "0.151.0",
+    "@e2b/code-interpreter": "2.3.3"
+  }
+}

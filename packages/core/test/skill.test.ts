@@ -9,6 +9,7 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SkillV2 } from "@opencode-ai/core/skill"
 import { SkillDiscovery } from "@opencode-ai/core/skill/discovery"
+import { WorkspaceFileSystem } from "@opencode-ai/core/workspace-capability"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 
@@ -26,6 +27,31 @@ const discovery = Layer.succeed(
 const it = testEffect(
   AppNodeBuilder.build(LayerNode.group([SkillV2.node, AgentV2.node]), [[SkillDiscovery.node, discovery]]),
 )
+const guestFiles = new Map<string, string>()
+const guest = Layer.effect(
+  WorkspaceFileSystem.Service,
+  Effect.gen(function* () {
+    const host = yield* FSUtil.Service
+    return WorkspaceFileSystem.Service.of({
+      ...host,
+      glob: (pattern, options) =>
+        Effect.succeed(
+          Array.from(guestFiles.keys()).filter((file) => {
+            if (!options?.cwd || !file.startsWith(`${options.cwd}${path.sep}`)) return false
+            if (pattern === "**/*") return true
+            return path.basename(file) === "SKILL.md" || (path.dirname(file) === options.cwd && file.endsWith(".md"))
+          }),
+        ),
+      readFileStringSafe: (file) => Effect.succeed(guestFiles.get(file)),
+    })
+  }),
+).pipe(Layer.provide(AppNodeBuilder.build(FSUtil.node)))
+const managedIt = testEffect(
+  AppNodeBuilder.build(LayerNode.group([SkillV2.node, AgentV2.node]), [
+    [SkillDiscovery.node, discovery],
+    [WorkspaceFileSystem.node, guest],
+  ]),
+)
 
 function write(directory: string, name: string, description: string) {
   return fs.writeFile(
@@ -39,6 +65,45 @@ description: ${description}
 }
 
 describe("SkillV2", () => {
+  managedIt.live("keeps workspace skill content and resources on the originating filesystem", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const shared = path.join(tmp.path, "shared")
+          const guestSkill = path.join(shared, "guest", "SKILL.md")
+          const guestResource = path.join(shared, "guest", "guest.txt")
+          const global = path.join(tmp.path, "global")
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.dirname(guestSkill), { recursive: true })
+            await fs.mkdir(path.join(global, "trusted"), { recursive: true })
+            await fs.writeFile(guestSkill, "---\nname: host\n---\n# host")
+            await fs.writeFile(path.join(shared, "guest", "host.txt"), "host")
+            await write(global, "trusted", "Trusted global")
+          })
+          guestFiles.clear()
+          guestFiles.set(guestSkill, "---\nname: guest\ndescription: Guest\n---\n# guest")
+          guestFiles.set(guestResource, "guest")
+
+          const skill = yield* SkillV2.Service
+          yield* skill.transform((draft) => {
+            draft.source({ type: "directory", path: AbsolutePath.make(global) })
+            draft.source({ type: "directory", path: AbsolutePath.make(shared) }, "workspace")
+          })
+
+          const loaded = yield* skill.list()
+          expect(loaded.map((item) => item.name)).toEqual(["trusted", "guest"])
+          const guestInfo = loaded.find((item) => item.name === "guest")
+          if (!guestInfo) return yield* Effect.die("guest skill missing")
+          expect(guestInfo.content).toBe("# guest")
+          expect(yield* skill.resourceFiles(guestInfo)).toEqual([guestResource])
+        }),
+      ),
+    ),
+  )
+
   it.live("registers sources and resolves later source precedence", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),

@@ -15,8 +15,11 @@ import { ConfigMigrateV1 } from "@opencode-ai/core/v1/config/migrate"
 import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
 import { agentHost, host } from "../plugin/host"
+import { WorkspaceFileSystem } from "@opencode-ai/core/workspace-capability"
 
-const it = testEffect(AppNodeBuilder.build(LayerNode.group([AgentV2.node, FSUtil.node, Global.node])))
+const it = testEffect(
+  AppNodeBuilder.build(LayerNode.group([AgentV2.node, FSUtil.node, WorkspaceFileSystem.node, Global.node])),
+)
 const decode = Schema.decodeUnknownSync(Config.Info)
 
 describe("ConfigAgentPlugin.Plugin", () => {
@@ -294,6 +297,56 @@ Use native v2 fields.`,
           })
           expect(yield* agents.get(AgentV2.ID.make("disabled"))).toBeUndefined()
           expect(yield* agents.get(AgentV2.ID.make("plan"))).toMatchObject({ system: "Make a plan.", mode: "primary" })
+        }),
+      ),
+    ),
+  )
+
+  it.live("loads workspace agents only through the workspace filesystem", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => Promise.all([tmpdir(), tmpdir()])),
+      (dirs) => Effect.promise(() => Promise.all(dirs.map((dir) => dir[Symbol.asyncDispose]())).then(() => undefined)),
+    ).pipe(
+      Effect.flatMap(([hostDir, guestDir]) =>
+        Effect.gen(function* () {
+          const logical = AbsolutePath.make(path.join(hostDir.path, "workspace"))
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(logical, "agents"), { recursive: true })
+            await fs.mkdir(path.join(guestDir.path, "agents"), { recursive: true })
+            await fs.writeFile(path.join(logical, "agents", "reviewer.md"), "Host content")
+            await fs.writeFile(path.join(guestDir.path, "agents", "reviewer.md"), "Guest content")
+          })
+          const hostFs = yield* FSUtil.Service
+          const probes: string[] = []
+          const guardedHost = FSUtil.Service.of({
+            ...hostFs,
+            glob: (pattern, options) => {
+              probes.push(options?.cwd ?? "")
+              return hostFs.glob(pattern, options)
+            },
+          })
+          const guestFs = FSUtil.Service.of({
+            ...hostFs,
+            glob: (pattern, options) =>
+              hostFs.glob(pattern, { ...options, cwd: guestDir.path }).pipe(
+                Effect.map((files) => files.map((file) => path.join(logical, path.relative(guestDir.path, file)))),
+              ),
+            readFileStringSafe: (file) => hostFs.readFileStringSafe(path.join(guestDir.path, path.relative(logical, file))),
+          })
+          const agents = yield* AgentV2.Service
+          yield* ConfigAgentPlugin.Plugin.effect(host({ agent: agentHost(agents) })).pipe(
+            Effect.provideService(
+              Config.Service,
+              Config.Service.of({
+                entries: () =>
+                  Effect.succeed([new Config.Directory({ type: "directory", path: logical, origin: "workspace" })]),
+              }),
+            ),
+            Effect.provideService(FSUtil.Service, guardedHost),
+            Effect.provideService(WorkspaceFileSystem.Service, guestFs),
+          )
+          expect((yield* agents.get(AgentV2.ID.make("reviewer")))?.system).toBe("Guest content")
+          expect(probes).toEqual([])
         }),
       ),
     ),

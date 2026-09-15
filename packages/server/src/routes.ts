@@ -22,6 +22,7 @@ import { schemaErrorLayer } from "./middleware/schema-error"
 import { PtyEnvironment } from "./pty-environment"
 import { layer as locationLayer } from "./location"
 import { sessionLocationLayer } from "./middleware/session-location"
+import { WorkspaceProvider } from "@opencode-ai/core/workspace-provider"
 
 const applicationServices = LayerNode.group([
   Database.node,
@@ -44,12 +45,27 @@ export function createRoutes(password?: string) {
   )
 }
 
-export function createEmbeddedRoutes() {
-  return makeRoutes(ServerAuth.Config.configLayer({ username: "opencode", password: Option.none() }))
+export function createEmbeddedRoutes(
+  workspaces?: WorkspaceProvider.Interface,
+  replacements: LayerNode.Replacements = [],
+) {
+  return makeRoutes(
+    ServerAuth.Config.configLayer({ username: "opencode", password: Option.none() }),
+    workspaces,
+    replacements,
+  )
 }
 
-function makeRoutes<AuthError, AuthServices>(auth: Layer.Layer<ServerAuth.Config, AuthError, AuthServices>) {
-  const serviceLayer = AppNodeBuilder.build(applicationServices, [[SessionExecution.node, SessionExecutionLocal.node]])
+function makeRoutes<AuthError, AuthServices>(
+  auth: Layer.Layer<ServerAuth.Config, AuthError, AuthServices>,
+  workspaces?: WorkspaceProvider.Interface,
+  replacements: LayerNode.Replacements = [],
+) {
+  const serviceLayer = AppNodeBuilder.build(
+    applicationServices,
+    replacements.concat([[SessionExecution.node, SessionExecutionLocal.node]]),
+    workspaces,
+  )
 
   return HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(
     Layer.provide(handlers),

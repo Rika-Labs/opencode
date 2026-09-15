@@ -7,6 +7,7 @@ import { FileSystem } from "../filesystem"
 import { FSUtil } from "../fs-util"
 import { makeLocationNode } from "../effect/app-node"
 import { AbsolutePath, PositiveInt, RelativePath } from "../schema"
+import { WorkspaceFileSystem } from "../workspace-capability"
 
 export const MAX_READ_LINES = 2_000
 export const MAX_READ_BYTES = 50 * 1024
@@ -354,7 +355,7 @@ export const list = Effect.fn("ReadTool.list")(function* (fs: FSUtil.Interface, 
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const fs = yield* FSUtil.Service
+    const fs = yield* WorkspaceFileSystem.Service
     return Service.of({
       inspect: (path) => inspect(fs, path),
       read: (path, resource, page) => read(fs, path, resource, page),
@@ -363,4 +364,4 @@ const layer = Layer.effect(
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer, deps: [FSUtil.node] })
+export const node = makeLocationNode({ service: Service, layer, deps: [WorkspaceFileSystem.node] })
