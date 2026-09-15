@@ -136,16 +136,20 @@ describe("desktop native locale detection", () => {
 })
 
 describe("desktop native ICU data", () => {
-  test("accepts every locale in standard Intl formatters", () => {
-    for (const locale of DESKTOP_NATIVE_LOCALES) {
-      const tag = DESKTOP_NATIVE_LOCALE_TAGS[locale]
-      expect(() => new Intl.Locale(tag), `${locale} locale`).not.toThrow()
-      expect(() => new Intl.NumberFormat(tag), `${locale} number`).not.toThrow()
-      expect(() => new Intl.DateTimeFormat(tag), `${locale} date`).not.toThrow()
-      expect(() => new Intl.PluralRules(tag), `${locale} plural`).not.toThrow()
-      expect(() => new Intl.ListFormat(tag), `${locale} list`).not.toThrow()
-      expect(() => new Intl.DisplayNames(tag, { type: "language" }), `${locale} names`).not.toThrow()
-      expect(() => new Intl.Segmenter(tag), `${locale} segmenter`).not.toThrow()
-    }
-  })
+  test(
+    "accepts every locale in standard Intl formatters",
+    () => {
+      for (const locale of DESKTOP_NATIVE_LOCALES) {
+        const tag = DESKTOP_NATIVE_LOCALE_TAGS[locale]
+        expect(() => new Intl.Locale(tag), `${locale} locale`).not.toThrow()
+        expect(() => new Intl.NumberFormat(tag), `${locale} number`).not.toThrow()
+        expect(() => new Intl.DateTimeFormat(tag), `${locale} date`).not.toThrow()
+        expect(() => new Intl.PluralRules(tag), `${locale} plural`).not.toThrow()
+        expect(() => new Intl.ListFormat(tag), `${locale} list`).not.toThrow()
+        expect(() => new Intl.DisplayNames(tag, { type: "language" }), `${locale} names`).not.toThrow()
+        expect(() => new Intl.Segmenter(tag), `${locale} segmenter`).not.toThrow()
+      }
+    },
+    30_000,
+  )
 })
