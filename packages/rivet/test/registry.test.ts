@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
-import { spawn } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
+import { promisify } from "node:util"
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
@@ -54,14 +55,20 @@ if (!selected) {
 }
 
 async function nativeSidecar() {
-  const modules = join(process.cwd(), "../..", "node_modules/.bun")
-  const entry = (await readdir(modules)).find((name) => name.startsWith("@rivet-dev+agentos-sidecar-linux-x64-gnu@"))
-  assert(entry, "native AgentOS sidecar is not installed")
-  return join(modules, entry, "node_modules/@rivet-dev/agentos-sidecar-linux-x64-gnu/agentos-sidecar")
+  const { sidecarPath } = await import("./sidecar-path.ts")
+  return sidecarPath()
 }
 
 async function stopEngine(runtimeDirectory: string) {
-  if (process.platform !== "linux") return
+  const engines = process.platform === "linux" ? await procEngines(runtimeDirectory) : await lsofEngines(runtimeDirectory)
+  engines.forEach((pid) => process.kill(pid, "SIGTERM"))
+  for (let attempt = 0; attempt < 50 && engines.some(running); attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  engines.filter(running).forEach((pid) => process.kill(pid, "SIGKILL"))
+}
+
+async function procEngines(runtimeDirectory: string) {
   const pids = (await readdir("/proc"))
     .filter((entry) => /^\d+$/.test(entry))
     .map(Number)
@@ -76,12 +83,15 @@ async function stopEngine(runtimeDirectory: string) {
         : undefined
     }),
   )
-  const engines = matches.filter((pid) => pid !== undefined)
-  engines.forEach((pid) => process.kill(pid, "SIGTERM"))
-  for (let attempt = 0; attempt < 50 && engines.some(running); attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
-  engines.filter(running).forEach((pid) => process.kill(pid, "SIGKILL"))
+  return matches.filter((pid) => pid !== undefined)
+}
+
+async function lsofEngines(runtimeDirectory: string) {
+  const result = await promisify(execFile)("lsof", ["-nPt", "+D", runtimeDirectory]).catch(() => ({ stdout: "" }))
+  return result.stdout
+    .split("\n")
+    .map((line) => Number(line.trim()))
+    .filter((pid) => Number.isInteger(pid) && pid > 0)
 }
 
 function running(pid: number) {

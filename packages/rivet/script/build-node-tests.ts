@@ -12,7 +12,7 @@ assert(jsonc, "jsonc-parser is not installed")
 const result = await Bun.build({
   entrypoints: (await readdir("test"))
     .filter((file) => file.endsWith(".test.ts"))
-    .map((file) => `test/${file}`),
+    .map((file) => `./test/${file}`),
   outdir,
   target: "node",
   format: "esm",

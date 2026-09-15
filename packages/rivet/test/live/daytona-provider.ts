@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { appendFile } from "node:fs/promises"
 import { test } from "node:test"
-import { Daytona, DaytonaNotFoundError } from "@daytonaio/sdk"
+import { Daytona, DaytonaError, DaytonaNotFoundError } from "@daytonaio/sdk"
 import { Effect } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { SandboxAgent } from "sandbox-agent"
@@ -66,8 +66,8 @@ test(
       await agent.dispose()
       agent = undefined
       const remote = await daytonaClient.get(id)
-      await remote.stop(120)
-      await remote.start(120)
+      await lifecycle(() => remote.stop(120))
+      await lifecycle(() => remote.start(120))
       agent = await SandboxAgent.start({ sandbox: provider, sandboxId: `daytona/${id}` })
       const resumed = Sandbox.make(agent, "/home/sandbox")
       assert.deepEqual(await Effect.runPromise(resumed.filesystem.readFile("live/data.bin")), binary)
@@ -75,7 +75,7 @@ test(
       await agent.destroySandbox()
       agent = undefined
       await appendFile(journal, `${JSON.stringify({ provider: "daytona", id, state: "deleted" })}\n`)
-      await assert.rejects(daytonaClient.get(id), DaytonaNotFoundError)
+      await deleted(daytonaClient, id)
       await assert.rejects(SandboxAgent.start({ sandbox: provider, sandboxId: `daytona/${id}` }))
       id = undefined
     } finally {
@@ -88,10 +88,9 @@ test(
           return undefined
         })
         if (remote) {
-          await remote.delete(120).catch((error: unknown) => cleanupErrors.push(error))
+          await lifecycle(() => remote.delete(120)).catch((error: unknown) => cleanupErrors.push(error))
         }
-        await assert
-          .rejects(daytonaClient.get(id), DaytonaNotFoundError)
+        await deleted(daytonaClient, id)
           .then(() =>
             appendFile(
               journal,
@@ -104,3 +103,27 @@ test(
     }
   },
 )
+
+async function lifecycle(action: () => Promise<unknown>) {
+  for (let attempt = 0; attempt < 60; attempt++) {
+    try {
+      return await action()
+    } catch (error) {
+      if (!(error instanceof DaytonaError) || error.statusCode !== 409) throw error
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+    }
+  }
+  throw new Error("Daytona sandbox state transition did not settle")
+}
+
+async function deleted(daytonaClient: Daytona, id: string) {
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const missing = await daytonaClient.get(id).then(() => false, (error: unknown) => {
+      if (error instanceof DaytonaNotFoundError) return true
+      throw error
+    })
+    if (missing) return
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+  }
+  assert.fail(`Daytona sandbox ${id} was not deleted`)
+}

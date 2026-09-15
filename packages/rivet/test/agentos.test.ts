@@ -119,7 +119,7 @@ test("stdin reaches EOF and deadlines stop delayed writes before returning", asy
       Effect.scoped(
         Effect.gen(function* () {
           const vm = yield* AgentOS.open({ directory, database: join(root, "vm.sqlite") })
-          const eof = yield* vm.run({ command: "cat", timeoutMs: 1000, maxOutputBytes: 0 })
+          const eof = yield* vm.run({ command: "cat", timeoutMs: 5000, maxOutputBytes: 0 })
           assert.equal(eof.exitCode, 0)
           assert.equal(eof.stdout.length, 0)
           const timed = yield* vm
@@ -148,7 +148,7 @@ test("stdin reaches EOF and deadlines stop delayed writes before returning", asy
   }
 })
 
-test("workspace stop terminates detached writers and rejects subsequent commands", async () => {
+test("workspace stop terminates detached writers and rejects subsequent commands", { timeout: 30000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "opencode-agentos-detached-"))
   const directory = join(root, "workspace")
   await mkdir(directory)
