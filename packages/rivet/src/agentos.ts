@@ -42,7 +42,7 @@ export const open = Effect.fn("Rivet.AgentOS.open")(function* (options: Options)
   return yield* Effect.uninterruptibleMask(() =>
     Effect.gen(function* () {
       const { AgentOs } = yield* Effect.tryPromise({
-        try: () => import("@rivet-dev/agentos-core"),
+        try: () => import("@rikalabs/agentos-core"),
         catch: (cause) => new Error({ operation: "load", cause }),
       })
       const sidecar = yield* Effect.tryPromise({

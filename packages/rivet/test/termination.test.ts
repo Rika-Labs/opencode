@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { AgentOs } from "@rivet-dev/agentos-core"
-import { StdioSidecarProtocolClient } from "@rivet-dev/agentos-runtime-core/native-client"
+import { AgentOs } from "@rikalabs/agentos-core"
+import { StdioSidecarProtocolClient } from "@rikalabs/agentos-runtime-core/native-client"
 
 test("native disposal rejects unconfirmed termination and retains the child for retry", async (t) => {
   const client = StdioSidecarProtocolClient.spawn({

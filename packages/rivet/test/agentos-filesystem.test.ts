@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
-import { AgentOs } from "@rivet-dev/agentos-core"
+import { AgentOs } from "@rikalabs/agentos-core"
 import { Effect } from "effect"
 import { make } from "../src/agentos-filesystem.ts"
 
