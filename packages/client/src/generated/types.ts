@@ -82,6 +82,27 @@ export type PermissionNotFoundError = {
 export const isPermissionNotFoundError = (value: unknown): value is PermissionNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "PermissionNotFoundError"
 
+export type McpNotFoundError = { readonly _tag: "McpNotFoundError"; readonly server: string; readonly message: string }
+export const isMcpNotFoundError = (value: unknown): value is McpNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "McpNotFoundError"
+
+export type McpError = {
+  readonly _tag: "McpError"
+  readonly server: string
+  readonly operation: string
+  readonly message: string
+}
+export const isMcpError = (value: unknown): value is McpError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "McpError"
+
+export type AppNotFoundError = { readonly _tag: "AppNotFoundError"; readonly id: string; readonly message: string }
+export const isAppNotFoundError = (value: unknown): value is AppNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "AppNotFoundError"
+
+export type ForbiddenError = { readonly _tag: "ForbiddenError"; readonly message: string }
+export const isForbiddenError = (value: unknown): value is ForbiddenError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ForbiddenError"
+
 export type PtyNotFoundError = { readonly _tag: "PtyNotFoundError"; readonly ptyID: string; readonly message: string }
 export const isPtyNotFoundError = (value: unknown): value is PtyNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "PtyNotFoundError"
@@ -2536,6 +2557,296 @@ export type SkillsListOutput = {
     readonly location: string
     readonly content: string
   }>
+}
+
+export type McpStatusInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type McpStatusOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: {
+    readonly [x: string]:
+      | { readonly status: "connected" }
+      | { readonly status: "disabled" }
+      | { readonly status: "failed"; readonly error: string }
+  }
+}
+
+export type McpListToolsInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly server?: string | undefined
+  }["location"]
+  readonly server?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly server?: string | undefined
+  }["server"]
+}
+
+export type McpListToolsOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: ReadonlyArray<{
+    readonly server: string
+    readonly name: string
+    readonly title?: string
+    readonly description?: string
+    readonly inputSchema: JsonValue
+    readonly outputSchema?: JsonValue
+    readonly meta?: JsonValue
+    readonly ui?: { readonly resourceUri: string }
+  }>
+}
+
+export type McpCallToolInput = {
+  readonly server: { readonly server: string; readonly name: string }["server"]
+  readonly name: { readonly server: string; readonly name: string }["name"]
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly arguments?: { readonly arguments?: JsonValue | undefined }["arguments"]
+}
+
+export type McpCallToolOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: {
+    readonly content: ReadonlyArray<
+      | { readonly type: "text"; readonly text: string }
+      | { readonly type: "image"; readonly data: string; readonly mimeType: string }
+      | {
+          readonly type: "resource"
+          readonly resource: {
+            readonly uri: string
+            readonly mimeType?: string
+            readonly text?: string
+            readonly blob?: string
+            readonly meta?: JsonValue
+          }
+        }
+    >
+    readonly structuredContent?: JsonValue
+    readonly isError?: boolean
+    readonly meta?: JsonValue
+  }
+}
+
+export type McpListResourcesInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly server?: string | undefined
+  }["location"]
+  readonly server?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly server?: string | undefined
+  }["server"]
+}
+
+export type McpListResourcesOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: ReadonlyArray<{
+    readonly server: string
+    readonly uri: string
+    readonly name: string
+    readonly description?: string
+    readonly mimeType?: string
+    readonly meta?: JsonValue
+  }>
+}
+
+export type McpReadResourceInput = {
+  readonly server: { readonly server: string }["server"]
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly uri: string
+  }["location"]
+  readonly uri: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly uri: string
+  }["uri"]
+}
+
+export type McpReadResourceOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: {
+    readonly contents: ReadonlyArray<{
+      readonly uri: string
+      readonly mimeType?: string
+      readonly text?: string
+      readonly blob?: string
+      readonly meta?: JsonValue
+    }>
+  }
+}
+
+export type McpConnectInput = {
+  readonly server: { readonly server: string }["server"]
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type McpConnectOutput = void
+
+export type McpDisconnectInput = {
+  readonly server: { readonly server: string }["server"]
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type McpDisconnectOutput = void
+
+export type AppsListInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type AppsListOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: ReadonlyArray<{
+    readonly manifest: {
+      readonly id: string
+      readonly name: string
+      readonly version: string
+      readonly description?: string
+      readonly mcp?:
+        | {
+            readonly type: "local"
+            readonly command: ReadonlyArray<string>
+            readonly cwd?: string
+            readonly environment?: { readonly [x: string]: string }
+            readonly timeout?: { readonly startup?: number; readonly request?: number }
+          }
+        | {
+            readonly type: "remote"
+            readonly url: string
+            readonly headers?: { readonly [x: string]: string }
+            readonly timeout?: { readonly startup?: number; readonly request?: number }
+          }
+      readonly skills?: ReadonlyArray<string>
+      readonly web?: { readonly root: string; readonly entry?: string | null }
+      readonly ui?: {
+        readonly csp?: {
+          readonly connectDomains?: ReadonlyArray<string>
+          readonly resourceDomains?: ReadonlyArray<string>
+          readonly frameDomains?: ReadonlyArray<string>
+          readonly baseUriDomains?: ReadonlyArray<string>
+        }
+        readonly permissions?: {
+          readonly camera?: boolean
+          readonly microphone?: boolean
+          readonly geolocation?: boolean
+          readonly clipboardWrite?: boolean
+        }
+      }
+      readonly permissions?: ReadonlyArray<string>
+    }
+    readonly directory: string
+    readonly mcpServer?: string
+    readonly hasWeb: boolean
+    readonly status: { readonly status: "active" } | { readonly status: "failed"; readonly error: string }
+  }>
+}
+
+export type AppsGetInput = {
+  readonly id: { readonly id: string }["id"]
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type AppsGetOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: {
+    readonly manifest: {
+      readonly id: string
+      readonly name: string
+      readonly version: string
+      readonly description?: string
+      readonly mcp?:
+        | {
+            readonly type: "local"
+            readonly command: ReadonlyArray<string>
+            readonly cwd?: string
+            readonly environment?: { readonly [x: string]: string }
+            readonly timeout?: { readonly startup?: number; readonly request?: number }
+          }
+        | {
+            readonly type: "remote"
+            readonly url: string
+            readonly headers?: { readonly [x: string]: string }
+            readonly timeout?: { readonly startup?: number; readonly request?: number }
+          }
+      readonly skills?: ReadonlyArray<string>
+      readonly web?: { readonly root: string; readonly entry?: string | null }
+      readonly ui?: {
+        readonly csp?: {
+          readonly connectDomains?: ReadonlyArray<string>
+          readonly resourceDomains?: ReadonlyArray<string>
+          readonly frameDomains?: ReadonlyArray<string>
+          readonly baseUriDomains?: ReadonlyArray<string>
+        }
+        readonly permissions?: {
+          readonly camera?: boolean
+          readonly microphone?: boolean
+          readonly geolocation?: boolean
+          readonly clipboardWrite?: boolean
+        }
+      }
+      readonly permissions?: ReadonlyArray<string>
+    }
+    readonly directory: string
+    readonly mcpServer?: string
+    readonly hasWeb: boolean
+    readonly status: { readonly status: "active" } | { readonly status: "failed"; readonly error: string }
+  }
+}
+
+export type AppsCreateTicketInput = {
+  readonly id: { readonly id: string }["id"]
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type AppsCreateTicketOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: { readonly ticket: string; readonly expires_in: number }
 }
 
 export type EventsSubscribeOutput = OpenCodeEventEncoded

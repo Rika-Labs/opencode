@@ -109,3 +109,31 @@ export class PtyNotFoundError extends Schema.TaggedErrorClass<PtyNotFoundError>(
   },
   { httpApiStatus: 404 },
 ) {}
+
+export class AppNotFoundError extends Schema.TaggedErrorClass<AppNotFoundError>()(
+  "AppNotFoundError",
+  {
+    id: Schema.String,
+    message: Schema.String,
+  },
+  { httpApiStatus: 404 },
+) {}
+
+export class McpNotFoundError extends Schema.TaggedErrorClass<McpNotFoundError>()(
+  "McpNotFoundError",
+  {
+    server: Schema.String,
+    message: Schema.String,
+  },
+  { httpApiStatus: 404 },
+) {}
+
+export class McpError extends Schema.TaggedErrorClass<McpError>()(
+  "McpError",
+  {
+    server: Schema.String,
+    operation: Schema.String,
+    message: Schema.String,
+  },
+  { httpApiStatus: 502 },
+) {}

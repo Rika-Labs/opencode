@@ -9,22 +9,24 @@ type Definition<Input, Output>
 type AnyTool = Definition<any, any>
 
 const make: <
-  Input extends Schema.Codec<any, any, never, never>,
+  Input extends Schema.Codec<any, any, never, never> | JsonSchema,
   Output extends Schema.Codec<any, any, never, never>,
 >(config: {
   readonly description: string
   readonly input: Input
   readonly output: Output
   readonly execute: (
-    input: Schema.Type<Input>,
+    input: Input extends Schema.Codec<any, any, any, any> ? Schema.Type<Input> : unknown,
     context: Tool.Context,
   ) => Effect.Effect<Schema.Type<Output>, ToolFailure>
   readonly toModelOutput?: (input: {
-    readonly input: Schema.Type<Input>
+    readonly input: Input extends Schema.Codec<any, any, any, any> ? Schema.Type<Input> : unknown
     readonly output: Output["Encoded"]
   }) => ReadonlyArray<Tool.Content>
 }) => Definition<Input, Output>
 ```
+
+`input` may be an Effect Schema or a render-only JSON Schema document. JSON Schema inputs are not decoded: the definition renders the document verbatim and `execute` receives the raw call input as `unknown` — the producer (for example an MCP server) validates it.
 
 Application tools, built-ins, and statically authored plugin tools use this same constructor and execution contract.
 

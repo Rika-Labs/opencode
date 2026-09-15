@@ -42,6 +42,7 @@ Configuration that introduces location-scoped project resources or discoverable 
 | -------------- | --------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------- |
 | `command`      | User-defined commands                   | remove   | Do not port as v2 config; named reusable user workflows belong to skills.                                 |
 | `skills`       | Additional skill locations              | redesign | Replace `{ paths?, urls? }` with a single array of local path or remote URL discovery sources.            |
+| `apps`         | App installs                            | new      | Array of directories, `file://` URLs, or npm packages containing an `app.json` manifest.                  |
 | `reference`    | Named git or local directory references | redesign | Rename to plural `references`; retain named local path and Git repository external-context entries.       |
 | `instructions` | Additional ambient instruction sources  | keep     | Keep as one array of local paths, glob patterns, or remote URLs supplying automatically included context. |
 

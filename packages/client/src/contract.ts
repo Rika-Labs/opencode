@@ -30,6 +30,8 @@ export const groupNames = {
   "server.fs": "files",
   "server.command": "commands",
   "server.skill": "skills",
+  "server.mcp": "mcp",
+  "server.app": "apps",
   "server.event": "events",
   "server.pty": "ptys",
   "server.question": "questions",
@@ -48,6 +50,11 @@ export const endpointNames = {
   "permission.saved.list": "listSaved",
   "permission.saved.remove": "removeSaved",
   "question.request.list": "listRequests",
+  "mcp.tool.list": "listTools",
+  "mcp.tool.call": "callTool",
+  "mcp.resource.list": "listResources",
+  "mcp.resource.read": "readResource",
+  "app.ticket": "createTicket",
 } as const
 
-export const omitEndpoints = new Set(["fs.read", "pty.connect", "pty.connectToken"])
+export const omitEndpoints = new Set(["fs.read", "pty.connect", "pty.connectToken", "app.asset"])

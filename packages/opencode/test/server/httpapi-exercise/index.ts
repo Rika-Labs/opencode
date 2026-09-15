@@ -729,6 +729,58 @@ const scenarios: Scenario[] = [
     .status(204, undefined, "status"),
   http.protected.get("/api/command", "v2.command.list").json(200, locationData(array)),
   http.protected.get("/api/skill", "v2.skill.list").json(200, locationData(array)),
+  http.protected.get("/api/app", "v2.app.list").json(200, locationData(array)),
+  http.protected
+    .get("/api/app/{id}", "v2.app.get")
+    .at((ctx) => ({ path: route("/api/app/{id}", { id: "app_httpapi_missing" }), headers: ctx.headers() }))
+    .json(404, object, "status"),
+  http.protected
+    .post("/api/app/{id}/ticket", "v2.app.ticket")
+    .at((ctx) => ({
+      path: route("/api/app/{id}/ticket", { id: "app_httpapi_missing" }),
+      headers: ctx.headers(),
+      body: {},
+    }))
+    .json(404, object, "status"),
+  http.protected
+    .get("/api/app/{id}/web/*", "v2.app.asset")
+    .at((ctx) => ({ path: "/api/app/app_httpapi_missing/web/index.html", headers: ctx.headers() }))
+    .probe({ path: "/api/app/auth_id/web/index.html" })
+    .status(401, undefined, "status"),
+  http.protected.get("/api/mcp", "v2.mcp.status").json(200, locationData(object)),
+  http.protected.get("/api/mcp/tool", "v2.mcp.tool.list").json(200, locationData(array)),
+  http.protected
+    .post("/api/mcp/{server}/tool/{name}", "v2.mcp.tool.call")
+    .at((ctx) => ({
+      path: route("/api/mcp/{server}/tool/{name}", { server: "missing", name: "missing" }),
+      headers: ctx.headers(),
+      body: { arguments: {} },
+    }))
+    .json(404, object, "status"),
+  http.protected.get("/api/mcp/resource", "v2.mcp.resource.list").json(200, locationData(array)),
+  http.protected
+    .get("/api/mcp/{server}/resource", "v2.mcp.resource.read")
+    .at((ctx) => ({
+      path: `${route("/api/mcp/{server}/resource", { server: "missing" })}?${new URLSearchParams({ uri: "ui://missing/index.html" })}`,
+      headers: ctx.headers(),
+    }))
+    .json(404, object, "status"),
+  http.protected
+    .post("/api/mcp/{server}/connect", "v2.mcp.connect")
+    .at((ctx) => ({
+      path: route("/api/mcp/{server}/connect", { server: "missing" }),
+      headers: ctx.headers(),
+      body: {},
+    }))
+    .json(404, object, "status"),
+  http.protected
+    .post("/api/mcp/{server}/disconnect", "v2.mcp.disconnect")
+    .at((ctx) => ({
+      path: route("/api/mcp/{server}/disconnect", { server: "missing" }),
+      headers: ctx.headers(),
+      body: {},
+    }))
+    .json(404, object, "status"),
   http.protected
     .get("/api/event", "v2.event.subscribe")
     .stream()

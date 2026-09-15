@@ -91,6 +91,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   skills: Schema.String.pipe(Schema.Array, Schema.optional).annotate({
     description: "Additional paths or URLs to discover skills from",
   }),
+  apps: Schema.String.pipe(Schema.Array, Schema.optional).annotate({
+    description: "Apps to install: a directory, file:// URL, or npm package containing app.json",
+  }),
   commands: Schema.Record(Schema.String, ConfigCommand.Info).pipe(Schema.optional).annotate({
     description: "Named slash command definitions",
   }),

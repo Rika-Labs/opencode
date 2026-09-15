@@ -1,3 +1,4 @@
+import path from "node:path"
 import { describe, expect } from "bun:test"
 import {
   LLMClient,
@@ -40,6 +41,8 @@ import { ApplicationTools } from "@opencode-ai/core/tool/application-tools"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { Config } from "@opencode-ai/core/config"
 import { ConfigCompaction } from "@opencode-ai/core/config/compaction"
+import { ConfigMCP } from "@opencode-ai/core/config/mcp"
+import { McpV2 } from "@opencode-ai/core/mcp"
 import { Tool } from "@opencode-ai/core/tool/tool"
 import {
   SessionContextEpochTable,
@@ -110,10 +113,11 @@ const recoveryModel = Model.make({
 })
 const authorizations: Tool.Context[] = []
 const executions: string[] = []
+const permissionAssertions: PermissionV2.AssertInput[] = []
 const permission = Layer.succeed(
   PermissionV2.Service,
   PermissionV2.Service.of({
-    assert: () => Effect.die("unused"),
+    assert: (input) => Effect.sync(() => permissionAssertions.push(input)),
     ask: () => Effect.die("unused"),
     reply: () => Effect.die("unused"),
     get: () => Effect.die("unused"),
@@ -263,6 +267,7 @@ const it = testEffect(
       AgentV2.node,
       ToolRegistry.node,
       ToolRegistry.toolsNode,
+      McpV2.node,
       echoNode,
       SessionRunnerModel.node,
       SystemContextRegistry.node,
@@ -329,6 +334,7 @@ const setup = Effect.gen(function* () {
   toolExecutionsReady = 5
   activeToolExecutions = 0
   maxActiveToolExecutions = 0
+  permissionAssertions.length = 0
   yield* db
     .insert(ProjectTable)
     .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
@@ -621,6 +627,7 @@ describe("SessionRunnerLLM", () => {
             }),
         }),
       })
+      requests.length = 0
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Use application context" }), resume: false })
       responses = [
         [
@@ -652,6 +659,59 @@ describe("SessionRunnerLLM", () => {
               type: "tool",
               id: "call-application",
               state: { status: "completed", structured: { answer: "HELLO" } },
+            },
+          ],
+        },
+      ])
+    }),
+  )
+
+  it.effect("advertises and executes an MCP app tool through the session runner", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const mcp = yield* McpV2.Service
+      const session = yield* SessionV2.Service
+      yield* mcp.transform((draft) => {
+        draft.server(
+          "app_calc",
+          new ConfigMCP.Local({
+            type: "local",
+            command: [process.execPath, path.join(import.meta.dir, "fixture/mcp-server.ts")],
+            cwd: import.meta.dir,
+          }),
+        )
+      })
+      expect(yield* mcp.status()).toEqual({ app_calc: { status: "connected" } })
+      requests.length = 0
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Price the order" }), resume: false })
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-price", name: "mcp_app_calc_price", input: {} }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+        [],
+      ]
+
+      yield* session.resume(sessionID)
+
+      expect(requests[0]?.tools.map((tool) => tool.name)).toContain("mcp_app_calc_price")
+      expect(permissionAssertions).toMatchObject([
+        { sessionID, action: "mcp", resources: ["app_calc:price"] },
+      ])
+      expect(yield* session.context(sessionID)).toMatchObject([
+        { type: "user", text: "Price the order" },
+        {
+          type: "assistant",
+          content: [
+            {
+              type: "tool",
+              id: "call-price",
+              state: {
+                status: "completed",
+                structured: { structuredContent: { price: 42, currency: "usd" } },
+              },
             },
           ],
         },

@@ -8,9 +8,12 @@ import { AgentV2 } from "../agent"
 import { Catalog } from "../catalog"
 import { CommandV2 } from "../command"
 import { Config } from "../config"
+import { AppV2 } from "../app"
 import { ConfigAgentPlugin } from "../config/plugin/agent"
+import { ConfigAppPlugin } from "../config/plugin/app"
 import { ConfigCommandPlugin } from "../config/plugin/command"
 import { ConfigExternalPlugin } from "../config/plugin/external"
+import { ConfigMcpPlugin } from "../config/plugin/mcp"
 import { ConfigProviderPlugin } from "../config/plugin/provider"
 import { ConfigReferencePlugin } from "../config/plugin/reference"
 import { ConfigSkillPlugin } from "../config/plugin/skill"
@@ -20,6 +23,7 @@ import { FSUtil } from "../fs-util"
 import { Global } from "../global"
 import { Integration } from "../integration"
 import { Location } from "../location"
+import { McpV2 } from "../mcp"
 import { ModelsDev } from "../models-dev"
 import { Npm } from "../npm"
 import { PluginV2 } from "../plugin"
@@ -37,6 +41,7 @@ import { WorkspaceFileSystem } from "../workspace-capability"
 
 export type Requirements =
   | AgentV2.Service
+  | AppV2.Service
   | Catalog.Service
   | CommandV2.Service
   | Config.Service
@@ -47,6 +52,7 @@ export type Requirements =
   | HttpClient.HttpClient
   | Integration.Service
   | Location.Service
+  | McpV2.Service
   | ModelsDev.Service
   | Npm.Service
   | Reference.Service
@@ -69,8 +75,10 @@ const layer = Layer.effectDiscard(
     const plugin = yield* PluginV2.Service
     const integration = yield* Integration.Service
     const agents = yield* AgentV2.Service
+    const apps = yield* AppV2.Service
     const config = yield* Config.Service
     const location = yield* Location.Service
+    const mcp = yield* McpV2.Service
     const modelsDev = yield* ModelsDev.Service
     const npm = yield* Npm.Service
     const events = yield* EventV2.Service
@@ -92,8 +100,10 @@ const layer = Layer.effectDiscard(
               Effect.provideService(CommandV2.Service, commands),
               Effect.provideService(Integration.Service, integration),
               Effect.provideService(AgentV2.Service, agents),
+              Effect.provideService(AppV2.Service, apps),
               Effect.provideService(Config.Service, config),
               Effect.provideService(Location.Service, location),
+              Effect.provideService(McpV2.Service, mcp),
               Effect.provideService(ModelsDev.Service, modelsDev),
               Effect.provideService(Npm.Service, npm),
               Effect.provideService(EventV2.Service, events),
@@ -119,6 +129,8 @@ const layer = Layer.effectDiscard(
         yield* add(ConfigAgentPlugin.Plugin)
         yield* add(ConfigCommandPlugin.Plugin)
         yield* add(ConfigSkillPlugin.Plugin)
+        yield* add(ConfigMcpPlugin.Plugin)
+        yield* add(ConfigAppPlugin.Plugin)
         for (const item of ProviderPlugins) yield* add(item)
         yield* add(ConfigExternalPlugin.Plugin)
         yield* add(ConfigProviderPlugin.Plugin)
@@ -137,6 +149,7 @@ export const node = makeLocationNode({
   name: "plugin-internal",
   layer,
   deps: [
+    AppV2.node,
     Catalog.node,
     CommandV2.node,
     PluginV2.node,
@@ -144,6 +157,7 @@ export const node = makeLocationNode({
     AgentV2.node,
     Config.node,
     Location.node,
+    McpV2.node,
     ModelsDev.node,
     Npm.node,
     EventV2.node,

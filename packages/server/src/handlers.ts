@@ -14,6 +14,8 @@ import { PtyHandler } from "./handlers/pty"
 import { QuestionHandler } from "./handlers/question"
 import { ReferenceHandler } from "./handlers/reference"
 import { LocationHandler } from "./handlers/location"
+import { McpHandler } from "./handlers/mcp"
+import { AppHandler } from "./handlers/app"
 import { IntegrationHandler } from "./handlers/integration"
 import { CredentialHandler } from "./handlers/credential"
 import { ProjectCopyHandler } from "./handlers/project-copy"
@@ -32,6 +34,8 @@ export const handlers = Layer.mergeAll(
   FileSystemHandler,
   CommandHandler,
   SkillHandler,
+  McpHandler,
+  AppHandler,
   EventHandler,
   PtyHandler,
   QuestionHandler,

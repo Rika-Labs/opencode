@@ -1,5 +1,7 @@
 import { Effect, Layer, LayerMap, RcMap } from "effect"
 import { AgentV2 } from "./agent"
+import { AppV2 } from "./app"
+import { AppHost } from "./app-host"
 import { AISDK } from "./aisdk"
 import { Catalog } from "./catalog"
 import { CommandV2 } from "./command"
@@ -14,6 +16,7 @@ import { Image } from "./image"
 import { Integration } from "./integration"
 import { Location } from "./location"
 import { LocationMutation } from "./location-mutation"
+import { McpV2 } from "./mcp"
 import { LocationServiceMap } from "./location-service-map"
 import { PermissionV2 } from "./permission"
 import { PluginV2 } from "./plugin"
@@ -68,6 +71,9 @@ export const locationServices = LayerNode.group([
   LocationMutation.node,
   FileMutation.node,
   PermissionV2.node,
+  McpV2.node,
+  AppV2.node,
+  AppHost.node,
   ToolOutputStore.node,
   ToolRegistry.node,
   ToolRegistry.toolsNode,
