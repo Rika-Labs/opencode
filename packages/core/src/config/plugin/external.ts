@@ -40,6 +40,7 @@ export const Plugin = define({
       const configured: { package: string; options?: Record<string, any> }[] = []
 
       for (const entry of yield* config.entries()) {
+        if (location.workspaceID && entry.origin === "workspace") continue
         if (entry.type === "document") {
           const directory = entry.path ? path.dirname(entry.path) : location.directory
           for (const item of entry.info.plugins ?? []) {

@@ -9,6 +9,7 @@ import { FSUtil } from "../../fs-util"
 import { ModelV2 } from "../../model"
 import { ConfigCommand } from "../command"
 import { ConfigMarkdown } from "../markdown"
+import { WorkspaceFileSystem } from "../../workspace-capability"
 
 const decodeCommand = Schema.decodeUnknownOption(ConfigCommand.Info)
 
@@ -17,11 +18,12 @@ export const Plugin = define({
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
     const fs = yield* FSUtil.Service
+    const workspaceFs = yield* WorkspaceFileSystem.Service
     yield* ctx.command.transform(
       Effect.fn(function* (draft) {
         const documents = yield* Effect.forEach(yield* config.entries(), (entry) => {
           if (entry.type === "document") return Effect.succeed([{ commands: entry.info.commands }])
-          return loadDirectory(fs, entry.path).pipe(
+          return loadDirectory(entry.origin === "workspace" ? workspaceFs : fs, entry.path).pipe(
             Effect.map((commands) => [
               { commands: Object.fromEntries(commands.map((command) => [command.name, command.info])) },
             ]),

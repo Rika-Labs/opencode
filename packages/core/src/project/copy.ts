@@ -290,3 +290,15 @@ export const refreshNode = makeLocationNode({
   layer: Layer.effectDiscard(refreshAfterBoot),
   deps: [node, Location.node],
 })
+
+export const unsupportedLayer = Layer.succeed(
+  Service,
+  Service.of({
+    register: () => Effect.void,
+    create: (input) => Effect.fail(new StrategyUnavailableError({ strategy: input.strategy })),
+    remove: () => Effect.die("Project copies are unsupported for managed workspaces"),
+    refresh: () => Effect.succeed({ updated: [], removed: [] }),
+  }),
+)
+
+export const noopRefreshLayer = Layer.empty

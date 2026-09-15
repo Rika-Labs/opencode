@@ -4,7 +4,6 @@ import path from "path"
 import { ToolFailure } from "@opencode-ai/llm"
 import { Effect, Layer, Schema } from "effect"
 import { makeLocationNode } from "../effect/app-node"
-import { FSUtil } from "../fs-util"
 import { SkillV2 } from "../skill"
 import { PermissionV2 } from "../permission"
 import { ToolRegistry } from "./registry"
@@ -57,7 +56,6 @@ const unableToLoad = (name: string, error?: unknown) =>
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
-    const fs = yield* FSUtil.Service
     const skills = yield* SkillV2.Service
     const permission = yield* PermissionV2.Service
     yield* tools
@@ -82,13 +80,7 @@ const layer = Layer.effectDiscard(
                   source: { type: "tool", messageID: context.assistantMessageID, callID: context.toolCallID },
                 })
                 const directory = path.dirname(skill.location)
-                const files =
-                  path.basename(skill.location) === "SKILL.md"
-                    ? (yield* fs.glob("**/*", { cwd: directory, absolute: true, include: "file", dot: true }))
-                        .filter((file) => path.basename(file) !== "SKILL.md")
-                        .toSorted()
-                        .slice(0, FILE_LIMIT)
-                    : []
+                const files = (yield* skills.resourceFiles(skill)).slice(0, FILE_LIMIT)
                 return {
                   name: skill.name,
                   directory,
@@ -105,5 +97,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/skill",
   layer,
-  deps: [ToolRegistry.node, FSUtil.node, SkillV2.node, PermissionV2.node],
+  deps: [ToolRegistry.node, SkillV2.node, PermissionV2.node],
 })

@@ -16,6 +16,7 @@ import { PermissionV2 } from "../../permission"
 import type { LocationMutation } from "../../location-mutation"
 import type { ReadTool } from "../../tool/read"
 import type { EditTool } from "../../tool/edit"
+import { WorkspaceFileSystem } from "../../workspace-capability"
 
 const legacySources = [
   { pattern: "{agent,agents}/**/*.md", primary: false },
@@ -48,16 +49,18 @@ export const Plugin = define({
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
     const fs = yield* FSUtil.Service
+    const workspaceFs = yield* WorkspaceFileSystem.Service
     const global = yield* Global.Service
     yield* ctx.agent.transform(
       Effect.fn(function* (draft) {
         const documents = yield* Effect.forEach(yield* config.entries(), (entry) => {
           if (entry.type === "document") return Effect.succeed([entry])
           return Effect.gen(function* () {
-            const files = yield* discover(fs, entry.path)
+            const source = entry.origin === "workspace" ? workspaceFs : fs
+            const files = yield* discover(source, entry.path)
             return yield* Effect.forEach(files, (file) =>
-              fs.readFileStringSafe(file.filepath).pipe(
-                Effect.map((content) => content && decode(file, content)),
+              source.readFileStringSafe(file.filepath).pipe(
+                Effect.map((content) => content && decode(file, content, entry.origin)),
                 Effect.catch(() => Effect.succeed(undefined)),
               ),
             ).pipe(
@@ -150,7 +153,11 @@ function discover(fs: FSUtil.Interface, directory: string) {
   )
 }
 
-function decode(file: { directory: string; filepath: string; primary: boolean }, content: string) {
+function decode(
+  file: { directory: string; filepath: string; primary: boolean },
+  content: string,
+  origin: Config.Directory["origin"],
+) {
   const markdown = ConfigMarkdown.parseOption(content)
   if (!markdown) return
   const name = path
@@ -175,5 +182,5 @@ function decode(file: { directory: string; filepath: string; primary: boolean },
     }),
   )
   if (!info) return
-  return new Config.Document({ type: "document", path: file.filepath, info })
+  return new Config.Document({ type: "document", path: file.filepath, origin, info })
 }

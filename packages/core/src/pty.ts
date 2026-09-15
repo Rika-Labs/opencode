@@ -316,3 +316,16 @@ const layer = Layer.effect(
 export const locationLayer = layer.pipe(Layer.provide(Config.locationLayer))
 
 export const node = makeLocationNode({ service: Service, layer, deps: [EventV2.node, Location.node, Config.node] })
+
+export const unsupportedLayer = Layer.succeed(
+  Service,
+  Service.of({
+    list: () => Effect.succeed([]),
+    get: (id) => Effect.fail(new NotFoundError({ ptyID: id })),
+    create: () => Effect.die("PTY is unsupported for managed workspaces"),
+    update: (id) => Effect.fail(new NotFoundError({ ptyID: id })),
+    remove: (id) => Effect.fail(new NotFoundError({ ptyID: id })),
+    write: (id) => Effect.fail(new NotFoundError({ ptyID: id })),
+    attach: (id) => Effect.fail(new NotFoundError({ ptyID: id })),
+  }),
+)

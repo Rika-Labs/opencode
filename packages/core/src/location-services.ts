@@ -1,4 +1,4 @@
-import { Effect, Layer, LayerMap } from "effect"
+import { Effect, Layer, LayerMap, RcMap } from "effect"
 import { AgentV2 } from "./agent"
 import { AISDK } from "./aisdk"
 import { Catalog } from "./catalog"
@@ -36,10 +36,15 @@ import { BuiltInTools } from "./tool/builtins"
 import { ReadToolFileSystem } from "./tool/read-filesystem"
 import { ToolRegistry } from "./tool/registry"
 import { ToolOutputStore } from "./tool-output-store"
+import { WorkspaceProvider } from "./workspace-provider"
+import { WorkspaceFileSystem, WorkspaceProcess, WorkspaceSearch } from "./workspace-capability"
 
 export { LocationServiceMap } from "./location-service-map"
 
 export const locationServices = LayerNode.group([
+  WorkspaceFileSystem.node,
+  WorkspaceProcess.node,
+  WorkspaceSearch.node,
   Location.node,
   Policy.node,
   Config.node,
@@ -83,30 +88,77 @@ export type LocationError = LayerNode.Error<typeof locationServices>
 
 export function buildLocationServiceMap(
   replacements: LayerNode.Replacements = [],
+  workspaces?: WorkspaceProvider.Interface,
 ): Layer.Layer<LocationServiceMap.Service> {
   return Layer.effect(
     LocationServiceMap.Service,
-    LayerMap.make(
-      (ref: Location.Ref) => {
-        const allReplacements = replacements.concat([[Location.node, Location.boundNode(ref)]])
-        // Apply replacements during hoist, not afterward: replacements can
-        // introduce new tagged dependencies (Location.boundNode depends on
-        // Project), and the hoist walk is the only pass that can still slice
-        // those back out.
-        const location = LayerNode.hoist(locationServices, Node.tags.values.global, allReplacements)
+    Effect.map(
+      LayerMap.make(
+        (ref: Location.Ref) => {
+          return Layer.unwrap(
+            // Without a configured provider no workspace is managed; an
+            // explicit workspace identity remains a location label.
+            (workspaces ? WorkspaceProvider.binding(workspaces, ref) : Effect.succeed(undefined)).pipe(
+              Effect.flatMap((bound) => {
+                const allReplacements = replacements.concat(
+                  bound
+                    ? [
+                        [WorkspaceFileSystem.node, Layer.succeed(WorkspaceFileSystem.Service, bound.filesystem)],
+                        [WorkspaceProcess.node, Layer.succeed(WorkspaceProcess.Service, bound.process)],
+                        [
+                          WorkspaceSearch.node,
+                          Layer.succeed(WorkspaceSearch.Service, bound.search ?? WorkspaceSearch.unsupported),
+                        ],
+                        [Location.node, Location.managedNode(ref, { project: bound.project, vcs: bound.vcs })],
+                        [FileSystemSearch.node, FileSystemSearch.managedLayer],
+                        [Watcher.node, Watcher.noopLayer],
+                        [Snapshot.node, Snapshot.unsupportedLayer],
+                        [Pty.node, Pty.unsupportedLayer],
+                        [ProjectCopy.node, ProjectCopy.unsupportedLayer],
+                        [ProjectCopy.refreshNode, ProjectCopy.noopRefreshLayer],
+                      ]
+                    : [[Location.node, Location.boundNode(ref)]],
+                )
+                // Apply replacements during hoist, not afterward: replacements can
+                // introduce new tagged dependencies (Location.boundNode depends on
+                // Project), and the hoist walk is the only pass that can still slice
+                // those back out.
+                const location = LayerNode.hoist(locationServices, Node.tags.values.global, allReplacements)
 
-        return LayerNode.compile(location.node).pipe(
-          Layer.fresh,
-          Layer.tap(() =>
-            Effect.logInfo("booting location services", {
-              directory: ref.directory,
-              workspaceID: ref.workspaceID,
-            }),
-          ),
-          Layer.provide(LayerNode.compile(location.hoisted)),
-        )
+                return Effect.succeed(
+                  LayerNode.compile(location.node).pipe(
+                    Layer.fresh,
+                    Layer.tap(() =>
+                      Effect.logInfo("booting location services", {
+                        directory: ref.directory,
+                        workspaceID: ref.workspaceID,
+                      }),
+                    ),
+                    Layer.provide(LayerNode.compile(location.hoisted)),
+                  ),
+                )
+              }),
+              Effect.orDie,
+            ),
+          )
+        },
+        { idleTimeToLive: "60 minutes" },
+      ),
+      (locations) => {
+        return LocationServiceMap.Service.of({
+          ...locations,
+          invalidateWorkspace: (workspaceID) =>
+            RcMap.keys(locations.rcMap).pipe(
+              Effect.flatMap((keys) =>
+                Effect.forEach(
+                  Array.from(keys).filter((ref) => ref.workspaceID === workspaceID),
+                  (ref) => locations.invalidate(ref),
+                  { discard: true },
+                ),
+              ),
+            ),
+        })
       },
-      { idleTimeToLive: "60 minutes" },
     ),
   )
 }

@@ -390,9 +390,12 @@ const layer = Layer.effect(
     const run = Effect.fn("SessionRunner.run")(function* (input: {
       readonly sessionID: SessionSchema.ID
       readonly force: boolean
+      readonly canPromote?: Effect.Effect<boolean>
     }) {
-      const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
-      const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
+      const canPromote = input.canPromote ?? Effect.succeed(true)
+      const promotionOpen = yield* canPromote
+      const hasSteer = promotionOpen && (yield* SessionInput.hasPending(db, input.sessionID, "steer"))
+      const hasQueue = hasSteer || !promotionOpen ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
       if (!input.force && !hasSteer && !hasQueue) return
       yield* failInterruptedTools(input.sessionID)
       let promotion: SessionInput.Delivery | undefined = hasSteer ? "steer" : hasQueue ? "queue" : undefined
@@ -404,10 +407,17 @@ const layer = Layer.effect(
           const result = yield* runTurn(input.sessionID, promotion, step)
           needsContinuation = result.needsContinuation
           step = result.step + 1
-          promotion = "steer"
-          if (!needsContinuation) needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
+          promotion = undefined
+          if (needsContinuation) {
+            if (yield* canPromote) promotion = "steer"
+            continue
+          }
+          if (yield* canPromote) {
+            needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
+            if (needsContinuation) promotion = "steer"
+          }
         }
-        shouldRun = yield* SessionInput.hasPending(db, input.sessionID, "queue")
+        shouldRun = (yield* canPromote) && (yield* SessionInput.hasPending(db, input.sessionID, "queue"))
         promotion = shouldRun ? "queue" : undefined
       }
     })

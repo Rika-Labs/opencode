@@ -555,6 +555,54 @@ const verifyPartialFlushOnInterruption = (kind: FragmentKind) =>
   })
 
 describe("SessionRunnerLLM", () => {
+  it.effect("leaves pending input untouched when workspace promotion closes", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const db = (yield* Database.Service).db
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Wait for workspace" }), resume: false })
+
+      requests.length = 0
+      yield* (yield* SessionRunner.Service).run({ sessionID, force: false, canPromote: Effect.succeed(false) })
+
+      expect(requests).toHaveLength(0)
+      expect(yield* SessionInput.hasPending(db, sessionID, "steer")).toBe(true)
+    }),
+  )
+
+  it.effect("finishes required tool continuation after workspace promotion closes", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const db = (yield* Database.Service).db
+      const events = yield* EventV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Use echo" }), resume: false })
+      yield* SessionInput.promoteSteers(db, events, sessionID, Number.MAX_SAFE_INTEGER)
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Do not promote" }), resume: false })
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-closed-echo", name: "echo", input: { text: "hello" } }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+          LLMEvent.finish({ reason: "stop" }),
+        ],
+      ]
+
+      requests.length = 0
+      yield* (yield* SessionRunner.Service).run({ sessionID, force: true, canPromote: Effect.succeed(false) })
+
+      expect(requests).toHaveLength(2)
+      expect(yield* SessionInput.hasPending(db, sessionID, "steer")).toBe(true)
+      expect(userTexts(requests[1]!)).toEqual(["Use echo"])
+      requests.length = 0
+    }),
+  )
+
   it.effect("advertises and executes a globally attached application tool", () =>
     Effect.gen(function* () {
       yield* setup

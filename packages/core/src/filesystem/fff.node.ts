@@ -135,4 +135,4 @@ export function create(_opts: Init): Result<Picker> {
   return { ok: false, error: "fff unavailable on node runtime" }
 }
 
-export * as Fff from "./fff.node"
+export * as Fff from "./fff.node.ts"

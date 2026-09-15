@@ -138,3 +138,5 @@ export const node = makeLocationNode({
   layer,
   deps: [FSUtil.node, Location.node, Config.node, Git.node, EventV2.node],
 })
+
+export const noopLayer = Layer.succeed(Service, Service.of({}))
