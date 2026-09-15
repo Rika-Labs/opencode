@@ -599,6 +599,7 @@ describe("SessionRunnerLLM", () => {
       expect(requests).toHaveLength(2)
       expect(yield* SessionInput.hasPending(db, sessionID, "steer")).toBe(true)
       expect(userTexts(requests[1]!)).toEqual(["Use echo"])
+      requests.length = 0
     }),
   )
 
