@@ -9,6 +9,18 @@ const maximumEntries = 1_000_000
 const maximumContentBytes = 2_147_483_648
 const execute = promisify(execFile)
 
+let resolved: Promise<string> | undefined
+const python = () => (resolved ??= findInterpreter())
+
+async function findInterpreter() {
+  const probe = "import inspect,sys,tarfile\nsys.exit(0 if 'filter' in inspect.signature(tarfile.TarFile.extractall).parameters else 1)"
+  for (const candidate of ["python3", "python3.13", "python3.12", "python3.11"]) {
+    const supported = await execute(candidate, ["-I", "-S", "-c", probe]).then(() => true, () => false)
+    if (supported) return candidate
+  }
+  throw new Error("workspace transfer requires a Python interpreter with tarfile extraction filters")
+}
+
 export async function archiveWorkspace(directory: string) {
   const root = await realpath(directory)
   const temporary = await mkdtemp(join(tmpdir(), "opencode-workspace-export-"))
@@ -32,7 +44,7 @@ export async function extractWorkspace(data: Uint8Array, destination: string) {
   const archive = join(temporary, "workspace.tar")
   try {
     await writeFile(archive, data)
-    await execute("python3", ["-I", "-S", "-c", extractScript, archive, String(maximumEntries), String(maximumContentBytes), destination])
+    await execute(await python(), ["-I", "-S", "-c", extractScript, archive, String(maximumEntries), String(maximumContentBytes), destination])
   } catch (cause) {
     await rm(destination, { recursive: true, force: true })
     throw cause
@@ -47,14 +59,14 @@ export async function validateArchive(data: Uint8Array) {
   const archive = join(temporary, "workspace.tar")
   try {
     await writeFile(archive, data)
-    await execute("python3", ["-I", "-S", "-c", validateScript, archive, String(maximumEntries), String(maximumContentBytes)])
+    await execute(await python(), ["-I", "-S", "-c", validateScript, archive, String(maximumEntries), String(maximumContentBytes)])
   } finally {
     await rm(temporary, { recursive: true, force: true })
   }
 }
 
 export async function workspaceManifest(directory: string) {
-  const result = await execute("python3", ["-I", "-S", "-c", manifestScript, await realpath(directory)])
+  const result = await execute(await python(), ["-I", "-S", "-c", manifestScript, await realpath(directory)])
   return JSON.parse(result.stdout) as unknown
 }
 
@@ -93,7 +105,8 @@ for parent,dirs,files in os.walk(root,topdown=True,followlinks=False):
  for name in sorted(dirs+files):
   path=os.path.join(parent,name); info=os.lstat(path); relative=os.path.relpath(path,root)
   kind="symlink" if stat.S_ISLNK(info.st_mode) else "directory" if stat.S_ISDIR(info.st_mode) else "file"
-  item={"path":relative,"type":kind,"mode":stat.S_IMODE(info.st_mode),"mtimeNs":info.st_mtime_ns}
+  item={"path":relative,"type":kind,"mtimeNs":info.st_mtime_ns}
+  if kind!="symlink": item["mode"]=stat.S_IMODE(info.st_mode)
   if kind=="file": item["size"]=info.st_size; item["sha256"]=hashlib.sha256(open(path,"rb").read()).hexdigest()
   if kind=="symlink": item["target"]=os.readlink(path)
   result.append(item)
