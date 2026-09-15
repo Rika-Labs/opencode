@@ -90,7 +90,7 @@ jobs:
 
   update-hashes:
     needs: compute-hash
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.repository == 'anomalyco/opencode'
     runs-on: ubuntu-24.04
 
     steps:
