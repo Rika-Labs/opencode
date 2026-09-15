@@ -777,7 +777,7 @@ export function layer(options: Options) {
                   return yield* fail("begin_promotion", "promotion_conflict", "A different promotion request already owns this workspace")
                 }
                 if (current.promotion.status === "completed" && current.promotion.cleanup !== "complete") return yield* fail("begin_promotion", "promotion_conflict", "Previous promotion cleanup is incomplete")
-                if (current.lifecycle !== "running") return yield* fail("begin_promotion", "promotion_conflict", "Workspace is not running")
+                if (current.lifecycle !== "running") return yield* fail("begin_promotion", "stopped", "Workspace is not running")
                 if (current.backend === payload.target) return yield* fail("begin_promotion", "promotion_conflict", "Workspace already uses the requested backend")
                 if ((current.promotionHistory?.length ?? 0) >= 32) return yield* fail("begin_promotion", "capacity", "Promotion history capacity reached")
                 const promotion = {
@@ -847,5 +847,20 @@ const releaseOwnership = (path: string, token: string) =>
   }).pipe(Effect.orDie)
 
 function assertManifest(source: unknown, destination: unknown) {
-  if (JSON.stringify(source) !== JSON.stringify(destination)) throw new globalThis.Error("Workspace destination manifest differs from source archive")
+  if (JSON.stringify(source) === JSON.stringify(destination)) return
+  const entries = (value: unknown) => new Map((Array.isArray(value) ? value : []).map((item) => [(item as { path?: string }).path, item]))
+  const wanted = entries(source)
+  const found = entries(destination)
+  for (const [path, item] of wanted) {
+    if (!found.has(path)) throw new globalThis.Error(`Workspace destination manifest is missing ${path}`)
+    const keys = new Set([...Object.keys(item as object), ...Object.keys(found.get(path) as object)])
+    for (const key of keys) {
+      const left = JSON.stringify((item as Record<string, unknown>)[key])
+      const right = JSON.stringify((found.get(path) as Record<string, unknown>)[key])
+      if (left !== right) throw new globalThis.Error(`Workspace destination manifest differs for ${path}: ${key} is ${right}, expected ${left}`)
+    }
+  }
+  for (const path of found.keys()) {
+    if (!wanted.has(path)) throw new globalThis.Error(`Workspace destination manifest has unexpected entry ${path}`)
+  }
 }

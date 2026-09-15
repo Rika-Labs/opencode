@@ -92,12 +92,15 @@ export function make(client: Client.Client, options: Pick<Options, "binding"> = 
   const unsupported = (operation: string, message: string) =>
     Effect.fail(new WorkspaceProvider.Error({ operation, code: "unsupported", message }))
   const mapError = (operation: string) =>
-    Effect.mapError(
-      (cause: unknown) =>
-        cause instanceof WorkspaceProvider.Error
-          ? cause
-          : new WorkspaceProvider.Error({ operation, code: "unavailable", message: String(cause), cause }),
-    )
+    Effect.mapError((cause: unknown) => {
+      if (cause instanceof WorkspaceProvider.Error) return cause
+      const reason =
+        typeof cause === "object" && cause !== null && "_tag" in cause && cause._tag === "Rivet.WorkspaceActorError" && "reason" in cause
+          ? String(cause.reason)
+          : undefined
+      const message = typeof cause === "object" && cause !== null && "message" in cause ? String(cause.message) : String(cause)
+      return new WorkspaceProvider.Error({ operation, code: actorCodes[reason ?? ""] ?? "unavailable", message, cause })
+    })
 
   const provider: WorkspaceProvider.Interface = {
     bind: (location) => {
@@ -185,6 +188,18 @@ export function make(client: Client.Client, options: Pick<Options, "binding"> = 
     ),
   }
   return provider
+}
+
+const actorCodes: Record<string, "not_found" | "invalid_path" | "unsupported" | "conflict" | "unavailable" | "failed"> = {
+  stopped: "unsupported",
+  unsupported: "unsupported",
+  stale_generation: "conflict",
+  command_conflict: "conflict",
+  promotion_conflict: "conflict",
+  unknown_command: "not_found",
+  storage_missing: "failed",
+  environment_failed: "failed",
+  capacity: "failed",
 }
 
 function promotionResult(id: string, result: Promotion): WorkspaceProvider.Promotion {
