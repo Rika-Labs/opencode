@@ -59,7 +59,11 @@ runs:
         # e.g. ./patches/ for standard-openapi
         # https://github.com/oven-sh/bun/issues/28147
         if [ "$RUNNER_OS" = "Windows" ]; then
-          bun install --linker hoisted ${{ inputs.install-flags }}
+          # A stale restored cache entry can make patch application fail with
+          # ENOTEMPTY on rename; clear the cache and retry once.
+          bun install --linker hoisted ${{ inputs.install-flags }} || {
+            rm -rf "$(bun pm cache)" && bun install --linker hoisted ${{ inputs.install-flags }}
+          }
         else
           bun install ${{ inputs.install-flags }}
         fi
