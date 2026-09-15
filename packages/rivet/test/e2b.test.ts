@@ -61,7 +61,7 @@ test("E2B cgroup fences detached work across stop and pause", { timeout: 300_000
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
-    assert.deepEqual(await sandbox.files.read(`/tmp/opencode-workspace-${token}.tar`, { format: "bytes" }), Buffer.from([0, 1, ...Buffer.from("known-binary"), 255]))
+    assert.deepEqual(Array.from(await sandbox.files.read(`/tmp/opencode-workspace-${token}.tar`, { format: "bytes" })), [0, 1, ...Buffer.from("known-binary"), 255])
     assert.equal(await sandbox.files.exists("/workspace/profile-escape"), false)
     const lateMarker = (await sandbox.files.exists("/workspace/late-marker")) ? await sandbox.files.read("/workspace/late-marker") : ""
     await new Promise((resolve) => setTimeout(resolve, 300))

@@ -94,7 +94,9 @@ if sys.argv[1] == "import":
         links.add(name)
       if not (member.isfile() or member.isdir() or member.issym() or member.islnk()): raise SystemExit(74)
     source.extractall(root,members=members,numeric_owner=False,filter="fully_trusted")
+    os.chown(root,1000,1000)
     for member in members:
+      os.chown(os.path.join(root,member.name),1000,1000,follow_symlinks=False)
       if member.issym(): os.utime(os.path.join(root,member.name),ns=(int(member.mtime)*1000000000,)*2,follow_symlinks=False)
   os.unlink(archive); os.rmdir(os.path.dirname(archive)); raise SystemExit(0)
 if value["sealed"]: raise SystemExit(72)
