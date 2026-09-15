@@ -15,3 +15,4 @@ export {
   SessionMessage,
 } from "@opencode-ai/client/effect"
 export type { OpenCodeEvent } from "@opencode-ai/client/effect"
+export { WorkspaceProvider } from "@opencode-ai/core/workspace-provider"

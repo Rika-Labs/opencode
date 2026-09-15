@@ -33,6 +33,7 @@ import { ModelsDevPlugin } from "./models-dev"
 import { ProviderPlugins } from "./provider"
 import { SkillPlugin } from "./skill"
 import { VariantPlugin } from "./variant"
+import { WorkspaceFileSystem } from "../workspace-capability"
 
 export type Requirements =
   | AgentV2.Service
@@ -50,6 +51,7 @@ export type Requirements =
   | Npm.Service
   | Reference.Service
   | SkillV2.Service
+  | WorkspaceFileSystem.Service
 
 export interface Plugin<R = never> {
   readonly id: string
@@ -78,6 +80,7 @@ const layer = Layer.effectDiscard(
     const http = yield* HttpClient.HttpClient
     const skill = yield* SkillV2.Service
     const reference = yield* Reference.Service
+    const workspaceFs = yield* WorkspaceFileSystem.Service
     const add = <R>(input: Plugin<R>) => {
       const loaded = {
         id: input.id,
@@ -100,6 +103,7 @@ const layer = Layer.effectDiscard(
               Effect.provideService(HttpClient.HttpClient, http),
               Effect.provideService(SkillV2.Service, skill),
               Effect.provideService(Reference.Service, reference),
+              Effect.provideService(WorkspaceFileSystem.Service, workspaceFs),
             ),
       }
       return plugin.add(PluginV2.ID.make(loaded.id), loaded.effect)
@@ -149,5 +153,6 @@ export const node = makeLocationNode({
     httpClient,
     SkillV2.node,
     Reference.node,
+    WorkspaceFileSystem.node,
   ],
 })

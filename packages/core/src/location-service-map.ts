@@ -4,10 +4,11 @@ import { Node } from "./effect/app-node"
 import { Location } from "./location"
 import type { LocationError, LocationServices } from "./location-services"
 
-export class Service extends Context.Service<
-  Service,
-  LayerMap.LayerMap<Location.Ref, LocationServices, LocationError>
->()("@opencode/example/LocationServiceMap") {
+export interface Interface extends LayerMap.LayerMap<Location.Ref, LocationServices, LocationError> {
+  readonly invalidateWorkspace: (workspaceID: NonNullable<Location.Ref["workspaceID"]>) => Effect.Effect<void>
+}
+
+export class Service extends Context.Service<Service, Interface>()("@opencode/example/LocationServiceMap") {
   static get(ref: Location.Ref) {
     return Layer.unwrap(Effect.map(Service, (locations) => locations.get(ref)))
   }

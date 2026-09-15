@@ -6,9 +6,10 @@ import path from "path"
 import { makeLocationNode } from "../effect/app-node"
 import { FileSystem } from "../filesystem"
 import { Location } from "../location"
-import { Ripgrep } from "../ripgrep"
+import { FileSystemSearch } from "../filesystem/search"
 import { RelativePath } from "../schema"
 import { PermissionV2 } from "../permission"
+import { Ripgrep } from "../ripgrep"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
@@ -38,6 +39,7 @@ export const toModelOutput = (output: ModelOutput) => {
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
+    const search = yield* FileSystemSearch.Service
     const ripgrep = yield* Ripgrep.Service
     const location = yield* Location.Service
     const permission = yield* PermissionV2.Service
@@ -72,13 +74,10 @@ const layer = Layer.effectDiscard(
                 agent: context.agent,
                 source: { type: "tool", messageID: context.assistantMessageID, callID: context.toolCallID },
               })
+              if (location.workspaceID) return yield* search.glob(input)
               const cwd = path.resolve(location.directory, input.path ?? ".")
               return yield* ripgrep
-                .glob({
-                  cwd,
-                  pattern: input.pattern,
-                  limit: input.limit ?? Number.MAX_SAFE_INTEGER,
-                })
+                .glob({ cwd, pattern: input.pattern, limit: input.limit ?? Number.MAX_SAFE_INTEGER })
                 .pipe(
                   Effect.map((result) =>
                     result.map((entry) =>
@@ -101,5 +100,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/glob",
   layer,
-  deps: [ToolRegistry.node, Ripgrep.node, Location.node, PermissionV2.node],
+  deps: [ToolRegistry.node, FileSystemSearch.node, Ripgrep.node, Location.node, PermissionV2.node],
 })

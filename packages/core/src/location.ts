@@ -37,3 +37,10 @@ export const boundNode = (ref: Ref) =>
     layer: layer(ref),
     deps: [Project.node],
   })
+
+export const managedNode = (ref: Ref, binding: { readonly project: Interface["project"]; readonly vcs?: Interface["vcs"] }) =>
+  makeLocationNode({
+    service: Service,
+    layer: Layer.succeed(Service, Service.of({ directory: ref.directory, workspaceID: ref.workspaceID, ...binding })),
+    deps: [],
+  })

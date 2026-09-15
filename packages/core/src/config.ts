@@ -25,6 +25,7 @@ import { ConfigToolOutput } from "./config/tool-output"
 import { ConfigWatcher } from "./config/watcher"
 import { ConfigV1 } from "./v1/config/config"
 import { ConfigMigrateV1 } from "./v1/config/migrate"
+import { WorkspaceFileSystem } from "./workspace-capability"
 
 export class Info extends Schema.Class<Info>("Config.Info")({
   $schema: Schema.optional(Schema.String).annotate({
@@ -109,12 +110,14 @@ export class Info extends Schema.Class<Info>("Config.Info")({
 export class Document extends Schema.Class<Document>("Config.Document")({
   type: Schema.Literal("document"),
   path: Schema.String.pipe(Schema.optional),
+  origin: Schema.Literals(["global", "workspace"]).pipe(Schema.optional),
   info: Info,
 }) {}
 
 export class Directory extends Schema.Class<Directory>("Config.Directory")({
   type: Schema.Literal("directory"),
   path: AbsolutePath,
+  origin: Schema.Literals(["global", "workspace"]).pipe(Schema.optional),
 }) {}
 
 export type Entry = Document | Directory
@@ -136,6 +139,7 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const fs = yield* FSUtil.Service
+    const workspaceFs = yield* WorkspaceFileSystem.Service
     const global = yield* Global.Service
     const location = yield* Location.Service
     const policy = yield* Policy.Service
@@ -144,8 +148,12 @@ const layer = Layer.effect(
     const decodeInfo = Schema.decodeUnknownOption(Info, decodeOptions)
     const decodeV1Info = Schema.decodeUnknownOption(ConfigV1.Info, decodeOptions)
 
-    const loadFile = Effect.fnUntraced(function* (filepath: string) {
-      const text = yield* fs.readFileStringSafe(filepath)
+    const loadFile = Effect.fnUntraced(function* (
+      source: FSUtil.Interface,
+      filepath: string,
+      origin: "global" | "workspace",
+    ) {
+      const text = yield* source.readFileStringSafe(filepath)
       if (!text) return
 
       const errors: ParseError[] = []
@@ -158,15 +166,48 @@ const layer = Layer.effect(
           : decodeInfo(input),
       )
       if (!info) return
-      return new Document({ type: "document", path: filepath, info })
+      const rejected =
+        origin === "workspace" && location.workspaceID
+          ? (["shell", "permissions", "formatter", "lsp", "mcp", "references", "plugins", "providers"] as const).filter(
+              (key) => info[key] !== undefined,
+            )
+          : []
+      if (rejected.length) {
+        yield* Effect.logWarning("Ignoring untrusted executable workspace configuration", {
+          path: filepath,
+          fields: rejected,
+        })
+      }
+      return Object.defineProperty(
+        new Document({
+          type: "document",
+          path: filepath,
+          info:
+            rejected.length === 0
+              ? info
+              : new Info({
+                  ...info,
+                  ...Object.fromEntries(rejected.map((key) => [key, undefined])),
+                }),
+        }),
+        "origin",
+        { value: origin, enumerable: false },
+      )
     })
 
-    const loadDirectory = Effect.fnUntraced(function* (directory: AbsolutePath) {
+    const loadDirectory = Effect.fnUntraced(function* (
+      source: FSUtil.Interface,
+      directory: AbsolutePath,
+      origin: "global" | "workspace",
+    ) {
       return [
-        ...(yield* Effect.forEach(names, (file) => loadFile(path.join(directory, file))).pipe(
+        ...(yield* Effect.forEach(names, (file) => loadFile(source, path.join(directory, file), origin)).pipe(
           Effect.map((configs) => configs.filter((config): config is Document => config !== undefined)),
         )),
-        new Directory({ type: "directory", path: directory }),
+        Object.defineProperty(new Directory({ type: "directory", path: directory }), "origin", {
+          value: origin,
+          enumerable: false,
+        }),
       ]
     })
 
@@ -176,7 +217,7 @@ const layer = Layer.effect(
     // values until the location is reopened.
     const discovered = locationIsGlobal
       ? []
-      : yield* fs
+      : yield* workspaceFs
           .up({
             targets: [".opencode", ...names.toReversed()],
             start: location.directory,
@@ -193,11 +234,13 @@ const layer = Layer.effect(
     // A config closer to the opened directory should win over one higher up.
     // Search starts nearby, so reverse the results before applying them.
     const directPaths = discovered.filter((item) => path.basename(item) !== ".opencode").toReversed()
-    const direct = yield* Effect.forEach(directPaths, loadFile).pipe(
+    const direct = yield* Effect.forEach(directPaths, (filepath) => loadFile(workspaceFs, filepath, "workspace")).pipe(
       Effect.orDie,
       Effect.map((configs) => configs.filter((config): config is Document => config !== undefined)),
     )
-    const supplementary = yield* Effect.forEach(directories, loadDirectory).pipe(Effect.orDie)
+    const supplementary = yield* Effect.forEach(directories, (directory, index) =>
+      loadDirectory(index === 0 ? fs : workspaceFs, directory, index === 0 ? "global" : "workspace"),
+    ).pipe(Effect.orDie)
     // Apply general settings first and more specific settings last:
     // global config, project files, then `.opencode` files.
     const configs = [...(supplementary[0] ?? []), ...direct, ...supplementary.slice(1).flat()]
@@ -223,5 +266,5 @@ export const locationLayer = layer.pipe(Layer.provideMerge(Policy.locationLayer)
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [FSUtil.node, Global.node, Location.node, Policy.node],
+  deps: [FSUtil.node, WorkspaceFileSystem.node, Global.node, Location.node, Policy.node],
 })

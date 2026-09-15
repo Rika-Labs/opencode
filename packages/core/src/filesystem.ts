@@ -8,6 +8,7 @@ import { Location } from "./location"
 import { PositiveInt, RelativePath } from "./schema"
 import { FileSystemSearch } from "./filesystem/search"
 import { Entry, FileSystem, FindInput, Match } from "@opencode-ai/schema/filesystem"
+import { WorkspaceFileSystem } from "./workspace-capability"
 export { Entry, Match, Submatch } from "@opencode-ai/schema/filesystem"
 
 export const ReadInput = Schema.Struct({
@@ -59,7 +60,7 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/v2
 const baseLayer = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const fs = yield* FSUtil.Service
+    const fs = yield* WorkspaceFileSystem.Service
     const location = yield* Location.Service
     const search = yield* FileSystemSearch.Service
     const root = yield* fs.realPath(location.directory).pipe(Effect.orDie)
@@ -72,9 +73,9 @@ const baseLayer = Layer.effect(
       return { absolute, real, directory: location.directory, root }
     })
     return Service.of({
-      find: search.find,
-      glob: search.glob,
-      grep: search.grep,
+      find: (input) => search.find(input).pipe(Effect.orDie),
+      glob: (input) => search.glob(input).pipe(Effect.orDie),
+      grep: (input) => search.grep(input).pipe(Effect.orDie),
       read: Effect.fn("FileSystem.read")(function* (input) {
         const target = yield* resolve(input.path)
         const info = yield* fs.stat(target.real).pipe(Effect.orDie)
@@ -114,5 +115,5 @@ const baseLayer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer: baseLayer,
-  deps: [FSUtil.node, Location.node, FileSystemSearch.node],
+  deps: [WorkspaceFileSystem.node, Location.node, FileSystemSearch.node],
 })

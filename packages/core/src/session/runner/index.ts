@@ -22,6 +22,7 @@ export interface Interface {
   readonly run: (input: {
     readonly sessionID: SessionSchema.ID
     readonly force: boolean
+    readonly canPromote?: Effect.Effect<boolean>
   }) => Effect.Effect<void, RunError>
 }
 

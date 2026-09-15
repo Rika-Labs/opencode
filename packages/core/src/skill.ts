@@ -2,7 +2,7 @@ export * as SkillV2 from "./skill"
 
 import { makeLocationNode } from "./effect/app-node"
 import path from "path"
-import { Context, Effect, Layer, Schema, Types } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 import { Skill } from "@opencode-ai/schema/skill"
 import { AgentV2 } from "./agent"
 import { ConfigMarkdown } from "./config/markdown"
@@ -11,6 +11,7 @@ import { PermissionV2 } from "./permission"
 import { AbsolutePath } from "./schema"
 import { SkillDiscovery } from "./skill/discovery"
 import { State } from "./state"
+import { WorkspaceFileSystem } from "./workspace-capability"
 
 export const DirectorySource = Skill.DirectorySource
 export type DirectorySource = Skill.DirectorySource
@@ -38,17 +39,21 @@ const Frontmatter = Schema.Struct({
 const decodeFrontmatter = Schema.decodeUnknownOption(Frontmatter)
 
 export type Data = {
-  sources: Types.DeepMutable<Source>[]
+  sources: SourceRecord[]
 }
 
+export type Authority = "trusted-global" | "workspace"
+type SourceRecord = { source: Source; authority: Authority }
+
 export type Draft = {
-  source: (source: Source) => void
+  source: (source: Source, authority?: Authority) => void
   list: () => readonly Source[]
 }
 
 export interface Interface extends State.Transformable<Draft> {
   readonly sources: () => Effect.Effect<Source[]>
   readonly list: () => Effect.Effect<Info[]>
+  readonly resourceFiles: (skill: Info) => Effect.Effect<string[], FSUtil.Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Skill") {}
@@ -58,28 +63,35 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const discovery = yield* SkillDiscovery.Service
     const fs = yield* FSUtil.Service
+    const workspaceFs = yield* WorkspaceFileSystem.Service
 
     const state = State.create<Data, Draft>({
       initial: () => ({ sources: [] }),
       draft: (draft) => ({
-        source: (source) => {
-          if (draft.sources.some((item) => Source.equals(item, source))) return
-          draft.sources.push(source as Types.DeepMutable<Source>)
+        source: (source, authority = "trusted-global") => {
+          if (draft.sources.some((item) => Source.equals(item.source, source))) return
+          draft.sources.push({ source, authority })
         },
-        list: () => draft.sources as Source[],
+        list: () => draft.sources.map((item) => item.source),
       }),
     })
 
-    const load = Effect.fn("SkillV2.load")(function* (source: Source) {
+    const load = Effect.fn("SkillV2.load")(function* (record: SourceRecord) {
       const skills: Info[] = []
+      const source = record.source
       if (source.type === "embedded") return [source.skill]
+      if (source.type === "url" && record.authority === "workspace") {
+        yield* Effect.logWarning("Ignoring URL skill source from workspace configuration", { url: source.url })
+        return skills
+      }
       const directories = source.type === "directory" ? [source.path] : yield* discovery.pull(source.url)
+      const sourceFs = record.authority === "workspace" ? workspaceFs : fs
       for (const directory of directories) {
-        const files = yield* fs
+        const files = yield* sourceFs
           .glob("{*.md,**/SKILL.md}", { cwd: directory, absolute: true, include: "file", symlink: true, dot: true })
           .pipe(Effect.catch(() => Effect.succeed([] as string[])))
         for (const filepath of files.toSorted()) {
-          const content = yield* fs.readFileStringSafe(filepath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          const content = yield* sourceFs.readFileStringSafe(filepath).pipe(Effect.catch(() => Effect.succeed(undefined)))
           if (!content) continue
           const markdown = ConfigMarkdown.parseOption(content)
           if (!markdown) continue
@@ -107,26 +119,47 @@ const layer = Layer.effect(
     // QUESTION(Dax): Should local skill sources invalidate on filesystem watch
     // events, following the reload policy chosen for other context sources?
     const cache = new Map<string, Info[]>()
-    const list = Effect.fn("SkillV2.list")(function* () {
-      const skills = new Map<string, Info>()
-      for (const source of state.get().sources) {
-        const key = Source.key(source)
-        const loaded = cache.get(key) ?? (yield* load(source))
+    const resolve = Effect.fn("SkillV2.resolve")(function* () {
+      const skills = new Map<string, { info: Info; authority: Authority }>()
+      for (const record of state.get().sources) {
+        const key = `${record.authority}:${Source.key(record.source)}`
+        const loaded = cache.get(key) ?? (yield* load(record))
         cache.set(key, loaded)
-        for (const skill of loaded) skills.set(skill.name, skill)
+        for (const info of loaded) skills.set(info.name, { info, authority: record.authority })
       }
-      return Array.from(skills.values())
+      return skills
+    })
+    const list = Effect.fn("SkillV2.list")(function* () {
+      return Array.from((yield* resolve()).values(), (item) => item.info)
     })
 
     return Service.of({
       transform: state.transform,
       reload: state.reload,
       sources: Effect.fn("SkillV2.sources")(function* () {
-        return state.get().sources
+        return state.get().sources.map((item) => item.source)
       }),
       list,
+      resourceFiles: Effect.fn("SkillV2.resourceFiles")(function* (skill) {
+        if (path.basename(skill.location) !== "SKILL.md") return []
+        const loaded = (yield* resolve()).get(skill.name)
+        if (!loaded) return []
+        const sourceFs = loaded.authority === "workspace" ? workspaceFs : fs
+        return (yield* sourceFs.glob("**/*", {
+          cwd: path.dirname(skill.location),
+          absolute: true,
+          include: "file",
+          dot: true,
+        }))
+          .filter((file) => path.basename(file) !== "SKILL.md")
+          .toSorted()
+      }),
     })
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer, deps: [SkillDiscovery.node, FSUtil.node] })
+export const node = makeLocationNode({
+  service: Service,
+  layer,
+  deps: [SkillDiscovery.node, FSUtil.node, WorkspaceFileSystem.node],
+})

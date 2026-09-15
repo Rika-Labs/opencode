@@ -11,11 +11,13 @@ import { Location } from "../location"
 import { Ripgrep } from "../ripgrep"
 import { RelativePath } from "../schema"
 import { Flag } from "../flag/flag"
+import { WorkspaceProvider } from "../workspace-provider"
+import { WorkspaceSearch } from "../workspace-capability"
 
 export interface Interface {
-  readonly find: (input: FileSystem.FindInput) => Effect.Effect<FileSystem.Entry[]>
-  readonly glob: (input: FileSystem.GlobInput) => Effect.Effect<readonly FileSystem.Entry[]>
-  readonly grep: (input: FileSystem.GrepInput) => Effect.Effect<readonly FileSystem.Match[]>
+  readonly find: (input: FileSystem.FindInput) => Effect.Effect<FileSystem.Entry[], WorkspaceProvider.Error>
+  readonly glob: (input: FileSystem.GlobInput) => Effect.Effect<readonly FileSystem.Entry[], WorkspaceProvider.Error>
+  readonly grep: (input: FileSystem.GrepInput) => Effect.Effect<readonly FileSystem.Match[], WorkspaceProvider.Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/FileSystem/Search") {}
@@ -235,5 +237,13 @@ export const fffLayer = Layer.effect(
 const layer = Layer.unwrap(Effect.sync(() => (Flag.OPENCODE_DISABLE_FFF || !Fff.available() ? ripgrepLayer : fffLayer)))
 
 export const locationLayer = layer
+
+export const managedLayer = Layer.effect(
+  Service,
+  Effect.gen(function* () {
+    const search = yield* WorkspaceSearch.Service
+    return Service.of({ find: search.find, glob: search.glob, grep: search.grep })
+  }),
+)
 
 export const node = makeLocationNode({ service: Service, layer, deps: [FSUtil.node, Location.node, Ripgrep.node] })
