@@ -96,7 +96,9 @@ export function buildLocationServiceMap(
       LayerMap.make(
         (ref: Location.Ref) => {
           return Layer.unwrap(
-            WorkspaceProvider.binding(workspaces, ref).pipe(
+            // Without a configured provider no workspace is managed; an
+            // explicit workspace identity remains a location label.
+            (workspaces ? WorkspaceProvider.binding(workspaces, ref) : Effect.succeed(undefined)).pipe(
               Effect.flatMap((bound) => {
                 const allReplacements = replacements.concat(
                   bound
