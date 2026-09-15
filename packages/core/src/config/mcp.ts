@@ -41,6 +41,7 @@ export class Remote extends Schema.Class<Remote>("ConfigV2.MCP.Remote")({
 }) {}
 
 export const Server = Schema.Union([Local, Remote]).pipe(Schema.toTaggedUnion("type"))
+export type ServerConfig = Local | Remote
 
 export class Info extends Schema.Class<Info>("ConfigV2.MCP")({
   timeout: Timeout.pipe(Schema.optional),

@@ -85,6 +85,26 @@ import type {
   CommandsListOutput,
   SkillsListInput,
   SkillsListOutput,
+  McpStatusInput,
+  McpStatusOutput,
+  McpListToolsInput,
+  McpListToolsOutput,
+  McpCallToolInput,
+  McpCallToolOutput,
+  McpListResourcesInput,
+  McpListResourcesOutput,
+  McpReadResourceInput,
+  McpReadResourceOutput,
+  McpConnectInput,
+  McpConnectOutput,
+  McpDisconnectInput,
+  McpDisconnectOutput,
+  AppsListInput,
+  AppsListOutput,
+  AppsGetInput,
+  AppsGetOutput,
+  AppsCreateTicketInput,
+  AppsCreateTicketOutput,
   EventsSubscribeOutput,
   PtysListInput,
   PtysListOutput,
@@ -803,6 +823,131 @@ export function make(options: ClientOptions) {
             query: { location: input?.["location"] },
             successStatus: 200,
             declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+    },
+    mcp: {
+      status: (input?: McpStatusInput, requestOptions?: RequestOptions) =>
+        request<McpStatusOutput>(
+          {
+            method: "GET",
+            path: `/api/mcp`,
+            query: { location: input?.["location"] },
+            successStatus: 200,
+            declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      listTools: (input?: McpListToolsInput, requestOptions?: RequestOptions) =>
+        request<McpListToolsOutput>(
+          {
+            method: "GET",
+            path: `/api/mcp/tool`,
+            query: { location: input?.["location"], server: input?.["server"] },
+            successStatus: 200,
+            declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      callTool: (input: McpCallToolInput, requestOptions?: RequestOptions) =>
+        request<McpCallToolOutput>(
+          {
+            method: "POST",
+            path: `/api/mcp/${encodeURIComponent(input.server)}/tool/${encodeURIComponent(input.name)}`,
+            query: { location: input["location"] },
+            body: { arguments: input["arguments"] },
+            successStatus: 200,
+            declaredStatuses: [404, 502, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      listResources: (input?: McpListResourcesInput, requestOptions?: RequestOptions) =>
+        request<McpListResourcesOutput>(
+          {
+            method: "GET",
+            path: `/api/mcp/resource`,
+            query: { location: input?.["location"], server: input?.["server"] },
+            successStatus: 200,
+            declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      readResource: (input: McpReadResourceInput, requestOptions?: RequestOptions) =>
+        request<McpReadResourceOutput>(
+          {
+            method: "GET",
+            path: `/api/mcp/${encodeURIComponent(input.server)}/resource`,
+            query: { location: input["location"], uri: input["uri"] },
+            successStatus: 200,
+            declaredStatuses: [404, 502, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      connect: (input: McpConnectInput, requestOptions?: RequestOptions) =>
+        request<McpConnectOutput>(
+          {
+            method: "POST",
+            path: `/api/mcp/${encodeURIComponent(input.server)}/connect`,
+            query: { location: input["location"] },
+            successStatus: 204,
+            declaredStatuses: [404, 401, 400],
+            empty: true,
+          },
+          requestOptions,
+        ),
+      disconnect: (input: McpDisconnectInput, requestOptions?: RequestOptions) =>
+        request<McpDisconnectOutput>(
+          {
+            method: "POST",
+            path: `/api/mcp/${encodeURIComponent(input.server)}/disconnect`,
+            query: { location: input["location"] },
+            successStatus: 204,
+            declaredStatuses: [404, 401, 400],
+            empty: true,
+          },
+          requestOptions,
+        ),
+    },
+    apps: {
+      list: (input?: AppsListInput, requestOptions?: RequestOptions) =>
+        request<AppsListOutput>(
+          {
+            method: "GET",
+            path: `/api/app`,
+            query: { location: input?.["location"] },
+            successStatus: 200,
+            declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      get: (input: AppsGetInput, requestOptions?: RequestOptions) =>
+        request<AppsGetOutput>(
+          {
+            method: "GET",
+            path: `/api/app/${encodeURIComponent(input.id)}`,
+            query: { location: input["location"] },
+            successStatus: 200,
+            declaredStatuses: [404, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      createTicket: (input: AppsCreateTicketInput, requestOptions?: RequestOptions) =>
+        request<AppsCreateTicketOutput>(
+          {
+            method: "POST",
+            path: `/api/app/${encodeURIComponent(input.id)}/ticket`,
+            query: { location: input["location"] },
+            successStatus: 200,
+            declaredStatuses: [404, 401, 400],
             empty: false,
           },
           requestOptions,

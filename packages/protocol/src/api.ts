@@ -8,6 +8,8 @@ import { makeSessionGroup } from "./groups/session"
 import { makePermissionGroup } from "./groups/permission"
 import { FileSystemGroup } from "./groups/fs"
 import { CommandGroup } from "./groups/command"
+import { McpGroup } from "./groups/mcp"
+import { AppGroup } from "./groups/app"
 import { SkillGroup } from "./groups/skill"
 import { EventGroup, makeEventGroup } from "./groups/event"
 import type { Definition } from "@opencode-ai/schema/event"
@@ -48,6 +50,8 @@ const makeApiFromGroup = <
     .add(FileSystemGroup.middleware(locationMiddleware))
     .add(CommandGroup.middleware(locationMiddleware))
     .add(SkillGroup.middleware(locationMiddleware))
+    .add(McpGroup.middleware(locationMiddleware))
+    .add(AppGroup.middleware(locationMiddleware))
     .add(eventGroup)
     .add(PtyGroup.middleware(locationMiddleware))
     .add(makeQuestionGroup(locationMiddleware, sessionLocationMiddleware))
