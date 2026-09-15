@@ -1,6 +1,6 @@
 import path from "path"
 import { describe, expect } from "bun:test"
-import { DateTime, Effect, Layer } from "effect"
+import { Cause, DateTime, Effect, Exit, Layer, Option } from "effect"
 import { App } from "@opencode-ai/schema/app"
 import { AppHost } from "@opencode-ai/core/app-host"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
@@ -40,20 +40,25 @@ describe("AppHost", () => {
         Effect.gen(function* () {
           const directory = AbsolutePath.make(tmp.path)
           const host = yield* AppHost.Service
-          const release = yield* host.publish(
+          const first = yield* host.publish(
             info(directory),
             AbsolutePath.make(path.join(tmp.path, "web")),
           )
-          expect(release.id as string).toBe("rel_app_calc")
-          expect(release.app as string).toBe("app_calc")
-          expect(release.url).toBe("/api/app/app_calc/web/")
-          expect(typeof DateTime.toEpochMillis(release.created_at)).toBe("number")
+          const second = yield* host.publish(
+            info(directory),
+            AbsolutePath.make(path.join(tmp.path, "web")),
+          )
+          expect(first.id as string).toMatch(/^rel_/)
+          expect(second.id).not.toBe(first.id)
+          expect(first.app as string).toBe("app_calc")
+          expect(first.url).toBe("/api/app/app_calc/web/")
+          expect(typeof DateTime.toEpochMillis(first.created)).toBe("number")
         }).pipe(Effect.provide(hostLayer(AbsolutePath.make(tmp.path)))),
       ),
     ),
   )
 
-  it.effect("url resolves the release and retire does not error", () =>
+  it.effect("url resolves the release and fails after the release is retired", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
@@ -69,9 +74,18 @@ describe("AppHost", () => {
           const resolved = yield* host.url(release)
           expect(resolved.pathname).toBe("/api/app/app_calc/web/")
           yield* host.retire(release)
-          expect(yield* host.url(release).pipe(Effect.map((url) => url.pathname))).toBe(
-            "/api/app/app_calc/web/",
+          const exit = yield* host.url(release).pipe(Effect.exit)
+          expect(exit._tag).toBe("Failure")
+          if (Exit.isFailure(exit)) {
+            const failure = Cause.findErrorOption(exit.cause)
+            expect(Option.isSome(failure) && failure.value._tag === "AppHost.Error").toBe(true)
+          }
+          const next = yield* host.publish(
+            info(directory),
+            AbsolutePath.make(path.join(tmp.path, "web")),
           )
+          expect(next.id).not.toBe(release.id)
+          expect((yield* host.url(next)).pathname).toBe("/api/app/app_calc/web/")
         }).pipe(Effect.provide(hostLayer(AbsolutePath.make(tmp.path)))),
       ),
     ),

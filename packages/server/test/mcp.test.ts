@@ -63,7 +63,15 @@ describe("server.mcp", () => {
       body: JSON.stringify({}),
     })
     expect(missing.status).toBe(404)
-    expect(await missing.json()).toMatchObject({ _tag: "ApiMcpNotFoundError", name: "missing" })
+    expect(await missing.json()).toMatchObject({ _tag: "McpNotFoundError", server: "missing" })
+
+    const missingResource = await request(`/api/mcp/missing/resource?uri=${encodeURIComponent("ui://x")}`)
+    expect(missingResource.status).toBe(404)
+    expect(await missingResource.json()).toMatchObject({ _tag: "McpNotFoundError", server: "missing" })
+
+    const missingConnect = await request("/api/mcp/missing/connect", { method: "POST" })
+    expect(missingConnect.status).toBe(404)
+    expect(await missingConnect.json()).toMatchObject({ _tag: "McpNotFoundError", server: "missing" })
 
     const resource = await request(`/api/mcp/test/resource?uri=${encodeURIComponent("ui://price/app.html")}`)
     expect(resource.status).toBe(200)
@@ -74,6 +82,13 @@ describe("server.mcp", () => {
     const disconnect = await request("/api/mcp/test/disconnect", { method: "POST" })
     expect(disconnect.status).toBe(204)
     expect(await data(await request("/api/mcp"))).toEqual({})
+
+    const afterDisconnect = await request("/api/mcp/test/tool/echo", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    })
+    expect(afterDisconnect.status).toBe(404)
 
     const reconnect = await request("/api/mcp/test/connect", { method: "POST" })
     expect(reconnect.status).toBe(204)

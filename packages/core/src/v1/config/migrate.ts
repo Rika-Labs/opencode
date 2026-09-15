@@ -130,9 +130,8 @@ function mcp(info: typeof ConfigV1.Info.Type) {
       "type" in server ? [[name, migrateMcp(server)] as const] : [],
     ),
   )
-  const timeout = info.experimental?.mcp_timeout
-  if (!timeout && !Object.keys(servers).length) return undefined
-  return { timeout: timeout === undefined ? undefined : { request: timeout }, servers }
+  if (!Object.keys(servers).length) return undefined
+  return { servers }
 }
 
 function migrateMcp(info: ConfigMCPV1.Info) {
@@ -150,13 +149,6 @@ function migrateMcp(info: ConfigMCPV1.Info) {
     type: info.type,
     url: info.url,
     headers: info.headers,
-    oauth: info.oauth && {
-      client_id: info.oauth.clientId,
-      client_secret: info.oauth.clientSecret,
-      scope: info.oauth.scope,
-      callback_port: info.oauth.callbackPort,
-      redirect_uri: info.oauth.redirectUri,
-    },
     disabled,
     timeout: info.timeout === undefined ? undefined : { request: info.timeout },
   }

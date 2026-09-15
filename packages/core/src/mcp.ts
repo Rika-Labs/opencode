@@ -10,6 +10,8 @@ import {
   CallToolResultSchema,
   ListRootsRequestSchema,
   ToolListChangedNotificationSchema,
+  type CallToolResult,
+  type ContentBlock,
   type Tool as McpToolDef,
 } from "@modelcontextprotocol/sdk/types.js"
 import { Context, Effect, Exit, JsonSchema, Layer, Schema, Scope, Semaphore } from "effect"
@@ -90,13 +92,12 @@ export interface Interface extends State.Transformable<Draft> {
     name: string,
     args: Schema.Json,
   ) => Effect.Effect<Mcp.CallResult, NotFoundError | McpError>
-  readonly connect: (name: string) => Effect.Effect<void, NotFoundError>
+  readonly connect: (name: string) => Effect.Effect<void, NotFoundError | McpError>
   readonly disconnect: (name: string) => Effect.Effect<void, NotFoundError>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Mcp") {}
 
-const DEFAULT_TIMEOUT = 30_000
 const MANAGED_LOCAL_REFUSAL = "Local MCP servers are not supported in managed workspaces"
 const WORKSPACE_LOCAL_REFUSAL = "Local MCP servers from workspace configuration are not supported"
 const MANAGED_WORKSPACE_REFUSAL = "Workspace-configured MCP servers are not supported in managed workspaces"
@@ -122,6 +123,20 @@ const layer = Layer.effect(
     const managed = new Map<string, Managed>()
     const statuses = new Map<string, Mcp.ServerStatus>()
     const mutex = Semaphore.makeUnsafe(1)
+    const sameConfig = Schema.toEquivalence(ConfigMCP.Server)
+
+    function refusal(record: ServerRecord): { status: "disabled" } | { status: "failed"; error: string } | undefined {
+      if (record.config.disabled) return { status: "disabled" }
+      const managedWorkspace = location.workspaceID !== undefined
+      const workspace = record.authority === "workspace"
+      if (record.config.type === "local")
+        return managedWorkspace
+          ? { status: "failed", error: MANAGED_LOCAL_REFUSAL }
+          : workspace
+            ? { status: "failed", error: WORKSPACE_LOCAL_REFUSAL }
+            : undefined
+      return managedWorkspace && workspace ? { status: "failed", error: MANAGED_WORKSPACE_REFUSAL } : undefined
+    }
 
     function createClient() {
       const client = new Client(
@@ -154,11 +169,7 @@ const layer = Layer.effect(
     }
 
     function toolInfo(server: string, def: McpToolDef): Mcp.ToolInfo {
-      const meta = def._meta as Record<string, unknown> | undefined
-      const resourceUri =
-        meta && typeof meta === "object" && typeof (meta.ui as Record<string, unknown> | undefined)?.resourceUri === "string"
-          ? ((meta.ui as Record<string, unknown>).resourceUri as string)
-          : undefined
+      const uri = (def._meta as { ui?: { resourceUri?: unknown } } | undefined)?.ui?.resourceUri
       return {
         server,
         name: def.name,
@@ -167,7 +178,7 @@ const layer = Layer.effect(
         inputSchema: def.inputSchema as Schema.Json,
         outputSchema: def.outputSchema as Schema.Json | undefined,
         meta: def._meta as Schema.Json | undefined,
-        ui: resourceUri ? { resourceUri } : undefined,
+        ui: typeof uri === "string" ? { resourceUri: uri } : undefined,
       }
     }
 
@@ -187,24 +198,16 @@ const layer = Layer.effect(
       }
     }
 
-    function callContent(item: Record<string, unknown> & { type: string }): Mcp.CallContent {
-      if (item.type === "text") return { type: "text", text: String(item.text ?? "") }
-      if (item.type === "image")
-        return { type: "image", data: String(item.data ?? ""), mimeType: String(item.mimeType ?? "") }
-      if (item.type === "resource" && typeof item.resource === "object" && item.resource !== null)
-        return { type: "resource", resource: resourceContent(item.resource as Parameters<typeof resourceContent>[0]) }
+    function callContent(item: ContentBlock): Mcp.CallContent {
+      if (item.type === "text") return { type: "text", text: item.text }
+      if (item.type === "image") return { type: "image", data: item.data, mimeType: item.mimeType }
+      if (item.type === "resource") return { type: "resource", resource: resourceContent(item.resource) }
       return { type: "text", text: JSON.stringify(item) }
     }
 
-    function callResult(result: {
-      content?: unknown
-      structuredContent?: unknown
-      isError?: boolean
-      _meta?: Record<string, unknown>
-    }): Mcp.CallResult {
-      const content = Array.isArray(result.content) ? result.content : []
+    function callResult(result: CallToolResult): Mcp.CallResult {
       return {
-        content: content.map((item) => callContent(item as Record<string, unknown> & { type: string })),
+        content: result.content.map(callContent),
         structuredContent: result.structuredContent as Schema.Json | undefined,
         isError: result.isError || undefined,
         meta: result._meta as Schema.Json | undefined,
@@ -213,10 +216,12 @@ const layer = Layer.effect(
 
     const register = Effect.fnUntraced(function* (entry: Managed, listed: McpToolDef[]) {
       const { client, record } = entry
-      const request = record.config.timeout?.request ?? DEFAULT_TIMEOUT
+      const request = record.config.timeout?.request ?? McpCatalog.DEFAULT_TIMEOUT
+      const names = listed.map((def) => McpCatalog.toolName(record.name, def.name))
+      if (new Set(names).size !== names.length) return `Duplicate tool names from "${record.name}"`
       const registrations = Object.fromEntries(
-        listed.map((def) => [
-          McpCatalog.toolName(record.name, def.name),
+        listed.map((def, index) => [
+          names[index],
           Tool.make({
             description: def.description ?? "",
             input: def.inputSchema as JsonSchema.JsonSchema,
@@ -278,8 +283,13 @@ const layer = Layer.effect(
           }),
         ]),
       )
-      yield* tools.register(registrations).pipe(Scope.provide(entry.registrations), Effect.orDie)
+      const failure = yield* tools.register(registrations).pipe(
+        Effect.catchTag("Tool.RegistrationError", (error) => Effect.succeed(error.message)),
+        Scope.provide(entry.registrations),
+      )
+      if (failure !== undefined) return failure
       entry.tools = listed.map((def) => toolInfo(record.name, def))
+      return undefined
     })
 
     const teardown = (entry: Managed) =>
@@ -288,14 +298,16 @@ const layer = Layer.effect(
     const watch = (entry: Managed) => {
       const { client, record } = entry
       client.onclose = () => {
-        if (managed.get(record.name) !== entry) return
-        managed.delete(record.name)
-        statuses.set(record.name, { status: "failed", error: "Connection closed" })
         runFork(
-          Effect.logWarning("MCP connection closed", { server: record.name }).pipe(
-            Effect.andThen(teardown(entry)),
-            Effect.andThen(events.publish(McpEvent.ToolsChanged, { server: record.name })),
-            Effect.ignore,
+          mutex.withPermit(
+            Effect.gen(function* () {
+              if (managed.get(record.name) !== entry) return
+              managed.delete(record.name)
+              statuses.set(record.name, { status: "failed", error: "Connection closed" })
+              yield* Effect.logWarning("MCP connection closed", { server: record.name })
+              yield* teardown(entry)
+              yield* events.publish(McpEvent.ToolsChanged, { server: record.name }).pipe(Effect.ignore)
+            }).pipe(Effect.ignore),
           ),
         )
       }
@@ -306,12 +318,20 @@ const layer = Layer.effect(
               if (managed.get(record.name) !== entry) return
               const listed = yield* McpCatalog.listTools(
                 client,
-                record.config.timeout?.request ?? DEFAULT_TIMEOUT,
+                record.config.timeout?.request ?? McpCatalog.DEFAULT_TIMEOUT,
               ).pipe(Effect.orElseSucceed(() => undefined))
               if (!listed || managed.get(record.name) !== entry) return
               yield* Scope.close(entry.registrations, Exit.void)
               entry.registrations = yield* Scope.make()
-              yield* register(entry, listed)
+              const failure = yield* register(entry, listed)
+              if (failure !== undefined) {
+                if (managed.get(record.name) !== entry) return
+                managed.delete(record.name)
+                statuses.set(record.name, { status: "failed", error: failure })
+                yield* teardown(entry)
+                yield* Effect.logWarning("MCP server unavailable", { server: record.name, error: failure })
+                return
+              }
               yield* events.publish(McpEvent.ToolsChanged, { server: record.name }).pipe(Effect.ignore)
             }),
           ),
@@ -319,12 +339,18 @@ const layer = Layer.effect(
       })
     }
 
-    const connect = Effect.fn("McpV2.connect")(function* (record: ServerRecord) {
-      const startup = record.config.timeout?.startup ?? DEFAULT_TIMEOUT
+    const connect = Effect.fnUntraced(function* (record: ServerRecord) {
+      const startup = record.config.timeout?.startup ?? McpCatalog.DEFAULT_TIMEOUT
+      const request = record.config.timeout?.request ?? McpCatalog.DEFAULT_TIMEOUT
       let client: Client | undefined
       let failure: string | undefined
+      let closedEarly = false
       for (const transport of transports(record.config)) {
+        closedEarly = false
         const attempt = createClient()
+        attempt.onclose = () => {
+          closedEarly = true
+        }
         failure = yield* Effect.tryPromise({
           try: () => attempt.connect(transport),
           catch: (error) => (error instanceof Error ? error.message : String(error)),
@@ -341,31 +367,32 @@ const layer = Layer.effect(
         }
         yield* Effect.tryPromise(() => transport.close()).pipe(Effect.ignore)
       }
-      if (!client && failure === undefined) failure = "Unknown error"
       if (failure !== undefined || !client) {
         if (record.config.type === "remote" && !URL.canParse(record.config.url))
           failure = `Invalid MCP URL for "${record.name}"`
         statuses.set(record.name, { status: "failed", error: failure ?? "Unknown error" })
         yield* Effect.logWarning("MCP server unavailable", { server: record.name, error: failure })
-        return
+        return failure ?? "Unknown error"
       }
       const scope = yield* Scope.make()
       const entry: Managed = { record, client, scope, registrations: yield* Scope.make(), tools: [] }
       managed.set(record.name, entry)
       yield* Scope.addFinalizer(scope, Effect.tryPromise(() => client.close()).pipe(Effect.ignore))
       watch(entry)
-      const listed = yield* McpCatalog.listTools(client, record.config.timeout?.request ?? DEFAULT_TIMEOUT).pipe(
-        Effect.orElseSucceed(() => undefined),
-      )
-      if (!listed) {
+      if (closedEarly) entry.client.onclose?.()
+      const listed = yield* (client.getServerCapabilities()?.tools
+        ? McpCatalog.listTools(client, request).pipe(Effect.orElseSucceed(() => undefined))
+        : Effect.succeed([]))
+      const failed = listed === undefined ? "Failed to list tools" : yield* register(entry, listed)
+      if (failed !== undefined) {
         managed.delete(record.name)
-        statuses.set(record.name, { status: "failed", error: "Failed to list tools" })
+        statuses.set(record.name, { status: "failed", error: failed })
         yield* teardown(entry)
-        yield* Effect.logWarning("MCP server unavailable", { server: record.name, error: "failed to list tools" })
-        return
+        yield* Effect.logWarning("MCP server unavailable", { server: record.name, error: failed })
+        return failed
       }
-      yield* register(entry, listed)
       statuses.set(record.name, { status: "connected" })
+      return undefined
     })
 
     const reconcile = (records: readonly ServerRecord[]) =>
@@ -374,32 +401,19 @@ const layer = Layer.effect(
           const desired = new Map(records.map((record) => [record.name, record]))
           for (const [name, entry] of Array.from(managed)) {
             const next = desired.get(name)
-            if (next && next.config === entry.record.config && next.authority === entry.record.authority) continue
+            if (next && sameConfig(next.config, entry.record.config) && next.authority === entry.record.authority)
+              continue
             managed.delete(name)
             yield* teardown(entry)
           }
           for (const name of Array.from(statuses.keys())) if (!desired.has(name)) statuses.delete(name)
           for (const record of desired.values()) {
             if (managed.has(record.name)) continue
-            if (record.config.disabled) {
-              statuses.set(record.name, { status: "disabled" })
-              continue
-            }
-            const managedWorkspace = location.workspaceID !== undefined
-            const workspace = record.authority === "workspace"
-            const refusal =
-              record.config.type === "local"
-                ? managedWorkspace
-                  ? MANAGED_LOCAL_REFUSAL
-                  : workspace
-                    ? WORKSPACE_LOCAL_REFUSAL
-                    : undefined
-                : managedWorkspace && workspace
-                  ? MANAGED_WORKSPACE_REFUSAL
-                  : undefined
-            if (refusal) {
-              yield* Effect.logWarning("Ignoring MCP server", { server: record.name, error: refusal })
-              statuses.set(record.name, { status: "failed", error: refusal })
+            const refused = refusal(record)
+            if (refused) {
+              if (refused.status === "failed")
+                yield* Effect.logWarning("Ignoring MCP server", { server: record.name, error: refused.error })
+              statuses.set(record.name, refused)
               continue
             }
             yield* connect(record)
@@ -407,22 +421,19 @@ const layer = Layer.effect(
         }),
       )
 
-    const state = State.create<Data, Draft>({
+    const state = State.create<Data, InternalDraft>({
       initial: () => ({ servers: [] }),
-      draft: (data) => {
-        const draft: InternalDraft = {
-          server: (name, config, authority = "trusted-global") => {
-            const index = data.servers.findIndex((record) => record.name === name)
-            const record = { name, config, authority }
-            if (index >= 0) data.servers[index] = record
-            else data.servers.push(record)
-          },
-          list: () => data.servers.map((record) => ({ name: record.name, config: record.config })),
-          records: () => data.servers,
-        }
-        return draft
-      },
-      finalize: (draft) => reconcile((draft as InternalDraft).records()),
+      draft: (data) => ({
+        server: (name, config, authority = "trusted-global") => {
+          const index = data.servers.findIndex((record) => record.name === name)
+          const record = { name, config, authority }
+          if (index >= 0) data.servers[index] = record
+          else data.servers.push(record)
+        },
+        list: () => data.servers.map((record) => ({ name: record.name, config: record.config })),
+        records: () => data.servers,
+      }),
+      finalize: (draft) => reconcile(draft.records()),
     })
 
     yield* Effect.addFinalizer(() =>
@@ -450,8 +461,8 @@ const layer = Layer.effect(
           if (server !== undefined && entry.record.name !== server) continue
           const listed = yield* McpCatalog.listResources(
             entry.client,
-            entry.record.config.timeout?.request ?? DEFAULT_TIMEOUT,
-          ).pipe(Effect.orElseSucceed(() => [] as Awaited<ReturnType<Client["listResources"]>>["resources"]))
+            entry.record.config.timeout?.request ?? McpCatalog.DEFAULT_TIMEOUT,
+          ).pipe(Effect.orElseSucceed(() => []))
           for (const item of listed)
             result.push({
               server: entry.record.name,
@@ -471,7 +482,7 @@ const layer = Layer.effect(
           try: () =>
             entry.client.readResource(
               { uri },
-              { timeout: entry.record.config.timeout?.request ?? DEFAULT_TIMEOUT },
+              { timeout: entry.record.config.timeout?.request ?? McpCatalog.DEFAULT_TIMEOUT },
             ),
           catch: (error) => new McpError({ server, operation: "resources/read", cause: error }),
         })
@@ -487,7 +498,7 @@ const layer = Layer.effect(
               CallToolResultSchema,
               {
                 resetTimeoutOnProgress: true,
-                timeout: entry.record.config.timeout?.request ?? DEFAULT_TIMEOUT,
+                timeout: entry.record.config.timeout?.request ?? McpCatalog.DEFAULT_TIMEOUT,
                 onprogress: () => {},
               },
             ),
@@ -498,10 +509,20 @@ const layer = Layer.effect(
       connect: Effect.fn("McpV2.connect")(function* (name) {
         const target = record(name)
         if (!target) return yield* new NotFoundError({ name })
-        yield* mutex.withPermit(Effect.gen(function* () {
-          if (managed.has(name)) return
-          yield* connect(target)
-        }))
+        yield* mutex.withPermit(
+          Effect.gen(function* () {
+            if (managed.has(name)) return
+            const refused = refusal(target)
+            if (refused) {
+              statuses.set(name, refused)
+              const message = refused.status === "disabled" ? `MCP server "${name}" is disabled` : refused.error
+              return yield* new McpError({ server: name, operation: "connect", cause: new Error(message) })
+            }
+            const failed = yield* connect(target)
+            if (failed !== undefined)
+              return yield* new McpError({ server: name, operation: "connect", cause: new Error(failed) })
+          }),
+        )
       }),
       disconnect: Effect.fn("McpV2.disconnect")(function* (name) {
         const target = record(name)

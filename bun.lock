@@ -100,7 +100,6 @@
         "@modelcontextprotocol/ext-apps": "1.7.5",
         "@modelcontextprotocol/sdk": "1.29.0",
         "@opencode-ai/client": "workspace:*",
-        "zod": "catalog:",
       },
       "devDependencies": {
         "@tsconfig/bun": "catalog:",

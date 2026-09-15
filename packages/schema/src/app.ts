@@ -12,12 +12,14 @@ export const ID = Schema.String.check(Schema.isPattern(/^app_[a-z0-9_-]+$/)).pip
 )
 export type ID = typeof ID.Type
 
+const CspDomain = Schema.String.check(Schema.isPattern(/^[^\s;'"]+$/))
+
 export interface Csp extends Schema.Schema.Type<typeof Csp> {}
 export const Csp = Schema.Struct({
-  connectDomains: Schema.Array(Schema.String).pipe(optional),
-  resourceDomains: Schema.Array(Schema.String).pipe(optional),
-  frameDomains: Schema.Array(Schema.String).pipe(optional),
-  baseUriDomains: Schema.Array(Schema.String).pipe(optional),
+  connectDomains: Schema.Array(CspDomain).pipe(optional),
+  resourceDomains: Schema.Array(CspDomain).pipe(optional),
+  frameDomains: Schema.Array(CspDomain).pipe(optional),
+  baseUriDomains: Schema.Array(CspDomain).pipe(optional),
 }).annotate({ identifier: "App.Csp" })
 
 export interface Permissions extends Schema.Schema.Type<typeof Permissions> {}
@@ -28,8 +30,8 @@ export const Permissions = Schema.Struct({
   clipboardWrite: Schema.Boolean.pipe(optional),
 }).annotate({ identifier: "App.Permissions" })
 
-export interface Timeout extends Schema.Schema.Type<typeof Timeout> {}
-export const Timeout = Schema.Struct({
+export interface McpTimeout extends Schema.Schema.Type<typeof McpTimeout> {}
+export const McpTimeout = Schema.Struct({
   startup: PositiveInt.pipe(optional),
   request: PositiveInt.pipe(optional),
 }).annotate({ identifier: "App.McpTimeout" })
@@ -40,7 +42,7 @@ export const McpLocal = Schema.Struct({
   command: Schema.Array(Schema.String),
   cwd: Schema.String.pipe(optional),
   environment: Schema.Record(Schema.String, Schema.String).pipe(optional),
-  timeout: Timeout.pipe(optional),
+  timeout: McpTimeout.pipe(optional),
 }).annotate({ identifier: "App.McpLocal" })
 
 export interface McpRemote extends Schema.Schema.Type<typeof McpRemote> {}
@@ -48,7 +50,7 @@ export const McpRemote = Schema.Struct({
   type: Schema.Literal("remote"),
   url: Schema.String,
   headers: Schema.Record(Schema.String, Schema.String).pipe(optional),
-  timeout: Timeout.pipe(optional),
+  timeout: McpTimeout.pipe(optional),
 }).annotate({ identifier: "App.McpRemote" })
 
 export type McpServer = McpLocal | McpRemote
@@ -76,7 +78,9 @@ export const Manifest = Schema.Struct({
   skills: Schema.Array(RelativePath).pipe(optional),
   web: Web.pipe(optional),
   ui: Ui.pipe(optional),
-  permissions: Schema.Array(Schema.String).pipe(optional),
+  permissions: Schema.Array(Schema.String)
+    .pipe(optional)
+    .annotate({ description: "Requested permission ids; informational until an approval flow exists" }),
 }).annotate({ identifier: "App.Manifest" })
 
 export interface Active extends Schema.Schema.Type<typeof Active> {}
@@ -84,25 +88,20 @@ export const Active = Schema.Struct({
   status: Schema.Literal("active"),
 }).annotate({ identifier: "App.Active" })
 
-export interface Disabled extends Schema.Schema.Type<typeof Disabled> {}
-export const Disabled = Schema.Struct({
-  status: Schema.Literal("disabled"),
-}).annotate({ identifier: "App.Disabled" })
-
 export interface Failed extends Schema.Schema.Type<typeof Failed> {}
 export const Failed = Schema.Struct({
   status: Schema.Literal("failed"),
   error: Schema.String,
 }).annotate({ identifier: "App.Failed" })
 
-export type Status = Active | Disabled | Failed
-export const Status = Schema.Union([Active, Disabled, Failed]).annotate({ identifier: "App.Status" })
+export type Status = Active | Failed
+export const Status = Schema.Union([Active, Failed]).annotate({ identifier: "App.Status" })
 
 export interface Info extends Schema.Schema.Type<typeof Info> {}
 export const Info = Schema.Struct({
   manifest: Manifest,
   directory: AbsolutePath,
-  server: Schema.String.pipe(optional),
+  mcpServer: Schema.String.pipe(optional),
   hasWeb: Schema.Boolean,
   status: Status,
 }).annotate({ identifier: "App.Info" })
@@ -120,5 +119,5 @@ export const Release = Schema.Struct({
   id: ReleaseID,
   app: ID,
   url: Schema.String,
-  created_at: DateTimeUtcFromMillis,
+  created: DateTimeUtcFromMillis,
 }).annotate({ identifier: "App.Release" })

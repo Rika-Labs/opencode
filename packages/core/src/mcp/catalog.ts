@@ -20,12 +20,13 @@ export async function paginate<T, R extends { nextCursor?: string }>(
   let cursor: string | undefined
 
   for (let page = 0; page < MAX_LIST_PAGES; page++) {
-    const page = await list(cursor)
-    result.push(...items(page))
-    if (page.nextCursor === undefined) return result
-    if (cursors.has(page.nextCursor)) throw new Error(`MCP list returned duplicate cursor: ${page.nextCursor}`)
-    cursors.add(page.nextCursor)
-    cursor = page.nextCursor
+    const response = await list(cursor)
+    result.push(...items(response))
+    if (response.nextCursor === undefined) return result
+    if (cursors.has(response.nextCursor))
+      throw new Error(`MCP list returned duplicate cursor: ${response.nextCursor}`)
+    cursors.add(response.nextCursor)
+    cursor = response.nextCursor
   }
 
   throw new Error(`MCP list exceeded ${MAX_LIST_PAGES} pages`)
@@ -33,7 +34,7 @@ export async function paginate<T, R extends { nextCursor?: string }>(
 
 export const sanitize = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, "_")
 
-export const toolName = (server: string, name: string) => sanitize(server) + "_" + sanitize(name)
+export const toolName = (server: string, name: string) => `mcp_${sanitize(server)}_${sanitize(name)}`.slice(0, 64)
 
 export function listTools(client: Client, timeout: number = DEFAULT_TIMEOUT) {
   return Effect.tryPromise({

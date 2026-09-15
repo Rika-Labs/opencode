@@ -2,19 +2,12 @@ import { App } from "@opencode-ai/schema/app"
 import { AppTicket } from "@opencode-ai/schema/app-ticket"
 import { Location } from "@opencode-ai/schema/location"
 import { Schema } from "effect"
-import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
+import { AppNotFoundError, ForbiddenError } from "../errors"
 import { LocationQuery, locationQueryOpenApi } from "./location"
 
-export class ApiAppNotFoundError extends Schema.TaggedErrorClass<ApiAppNotFoundError>()(
-  "ApiAppNotFoundError",
-  {
-    id: Schema.String,
-    message: Schema.String,
-  },
-  { httpApiStatus: 404 },
-) {}
-
 export const APP_TICKET_QUERY = "ticket"
+export const APP_ASSET_COOKIE_PREFIX = "opencode_app_"
 
 const APP_ASSET_PATH = /^\/api\/app\/[^/]+\/web(?:\/|$)/
 
@@ -27,7 +20,7 @@ export function hasAppAssetTicketURL(url: URL) {
 }
 
 export function appAssetCookieName(id: string) {
-  return `opencode_app_${id}`
+  return `${APP_ASSET_COOKIE_PREFIX}${id}`
 }
 
 const AssetQuery = Schema.Struct({
@@ -55,7 +48,7 @@ export const AppGroup = HttpApiGroup.make("server.app")
       params: { id: App.ID },
       query: LocationQuery,
       success: Location.response(App.Info),
-      error: ApiAppNotFoundError,
+      error: AppNotFoundError,
     })
       .annotateMerge(locationQueryOpenApi)
       .annotateMerge(
@@ -71,7 +64,7 @@ export const AppGroup = HttpApiGroup.make("server.app")
       params: { id: App.ID },
       query: LocationQuery,
       success: Location.response(AppTicket.Ticket),
-      error: ApiAppNotFoundError,
+      error: [ForbiddenError, AppNotFoundError],
     })
       .annotateMerge(locationQueryOpenApi)
       .annotateMerge(
@@ -87,8 +80,7 @@ export const AppGroup = HttpApiGroup.make("server.app")
     HttpApiEndpoint.get("app.asset", "/api/app/:id/web/*", {
       params: { id: App.ID },
       query: AssetQuery,
-      success: Schema.String,
-      error: ApiAppNotFoundError,
+      success: Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array()),
     })
       .annotateMerge(locationQueryOpenApi)
       .annotateMerge(

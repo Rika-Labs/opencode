@@ -6,7 +6,6 @@ import { App } from "@opencode-ai/schema/app"
 import { ConfigMCP } from "./config/mcp"
 import { makeLocationNode } from "./effect/app-node"
 import { FSUtil } from "./fs-util"
-import { Location } from "./location"
 import { McpV2 } from "./mcp"
 import { AbsolutePath } from "./schema"
 import { SkillV2 } from "./skill"
@@ -81,7 +80,7 @@ type Loaded =
       readonly directory: AbsolutePath
       readonly authority: Authority
       readonly error: string
-      readonly content?: string
+      readonly id?: App.ID
     }
 
 const layer = Layer.effect(
@@ -121,33 +120,62 @@ const layer = Layer.effect(
     }
 
     function fallbackManifest(item: Extract<Loaded, { error: string }>): App.Manifest {
-      const parsed = item.content === undefined ? undefined : decodeID(item.content).valueOrUndefined
       const name = path.basename(item.directory).toLowerCase().replace(/[^a-z0-9_-]/g, "-") || "invalid"
-      return Manifest.make({ id: parsed?.id ?? App.ID.make(`app_${name}`), name, version: "0.0.0" })
+      return Manifest.make({ id: item.id ?? App.ID.make(`app_${name}`), name, version: "0.0.0" })
     }
 
-    function contained(directory: AbsolutePath, entries: readonly string[]) {
+    const contained = Effect.fn("AppV2.contained")(function* (
+      source: FSUtil.Interface,
+      directory: AbsolutePath,
+      entries: readonly string[],
+    ) {
+      const root = yield* source.resolve(directory)
       const result: AbsolutePath[] = []
       for (const entry of entries) {
         const resolved = path.resolve(directory, entry)
-        if (resolved !== directory && !resolved.startsWith(directory + path.sep)) continue
+        if (!FSUtil.contains(root, yield* source.resolve(resolved))) {
+          yield* Effect.logWarning("Ignoring skill directory outside the app directory", { directory, entry })
+          continue
+        }
         result.push(AbsolutePath.make(resolved))
       }
       return result
-    }
+    })
 
     const load = Effect.fn("AppV2.load")(function* (record: SourceRecord) {
-      const content = yield* fsFor(record.authority)
+      const source = fsFor(record.authority)
+      const content = yield* source
         .readFileStringSafe(path.join(record.directory, "app.json"))
         .pipe(Effect.catch(() => Effect.succeed(undefined)))
       if (content === undefined) return { ...record, error: "missing or unreadable app.json" } satisfies Loaded
       const manifest = decodeManifest(content).valueOrUndefined
-      if (!manifest) return { ...record, error: "invalid app.json manifest", content } satisfies Loaded
-      const skillDirs = contained(record.directory, manifest.skills ?? [])
+      if (!manifest)
+        return {
+          ...record,
+          error: "invalid app.json manifest",
+          id: decodeID(content).valueOrUndefined?.id,
+        } satisfies Loaded
+      const real = yield* source.resolve(record.directory)
+      const server = manifest.mcp
+      if (
+        server?.type === "local" &&
+        server.cwd !== undefined &&
+        !FSUtil.contains(real, yield* source.resolve(path.resolve(record.directory, server.cwd)))
+      )
+        return {
+          ...record,
+          error: `mcp.cwd escapes the app directory: ${server.cwd}`,
+          id: manifest.id,
+        } satisfies Loaded
+      const skillDirs = yield* contained(source, record.directory, manifest.skills ?? [])
       if (!manifest.web) return { ...record, manifest, skillDirs } satisfies Loaded
       const webRoot = path.resolve(record.directory, manifest.web.root)
-      if (webRoot !== record.directory && !webRoot.startsWith(record.directory + path.sep))
-        return { ...record, error: `web.root escapes the app directory: ${manifest.web.root}` } satisfies Loaded
+      if (!FSUtil.contains(real, yield* source.resolve(webRoot)))
+        return {
+          ...record,
+          error: `web.root escapes the app directory: ${manifest.web.root}`,
+          id: manifest.id,
+        } satisfies Loaded
       return { ...record, manifest, skillDirs, webRoot: AbsolutePath.make(webRoot) } satisfies Loaded
     })
 
@@ -163,14 +191,14 @@ const layer = Layer.effect(
       return {
         manifest: item.manifest,
         directory: item.directory,
-        server: item.manifest.mcp ? item.manifest.id : undefined,
+        mcpServer: item.manifest.mcp ? item.manifest.id : undefined,
         hasWeb: item.webRoot !== undefined,
         status:
           serverStatus?.status === "failed" ? { status: "failed", error: serverStatus.error } : { status: "active" },
       }
     }
 
-    const state = State.create<Data, Draft>({
+    const state = State.create<Data, InternalDraft>({
       initial: () => ({ apps: [] }),
       draft: (data) => {
         const draft: InternalDraft = {
@@ -184,7 +212,20 @@ const layer = Layer.effect(
         return draft
       },
       finalize: Effect.fn("AppV2.finalize")(function* (draft) {
-        loaded = yield* Effect.forEach((draft as InternalDraft).records(), load)
+        const items = yield* Effect.forEach(draft.records(), load)
+        const seen = new Set<string>()
+        loaded = items.map((item) => {
+          if (!("manifest" in item)) return item
+          if (seen.has(item.manifest.id))
+            return {
+              directory: item.directory,
+              authority: item.authority,
+              error: "duplicate app id",
+              id: item.manifest.id,
+            }
+          seen.add(item.manifest.id)
+          return item
+        })
         yield* mcp.reload()
         yield* skill.reload()
       }),
@@ -208,7 +249,7 @@ const layer = Layer.effect(
             )
     })
 
-    const infos = Effect.fn("AppV2.infos")(function* () {
+    const infos = Effect.fn("AppV2.list")(function* () {
       const mcpStatuses = yield* mcp.status()
       return loaded.map((item) => info(item, mcpStatuses))
     })
@@ -232,7 +273,7 @@ const layer = Layer.effect(
           try: () => decodeURIComponent(requestPath),
           catch: () => new AssetError({ id, message: `invalid asset path: ${requestPath}` }),
         })
-        const relative = decoded === "" || decoded === "/" ? (item.manifest.web.entry as string) : decoded
+        const relative = decoded === "" || decoded === "/" ? item.manifest.web.entry : decoded
         if (relative.startsWith("/"))
           return yield* new AssetError({ id, message: `invalid asset path: ${requestPath}` })
         const normalized = path.posix.normalize(relative)
@@ -244,10 +285,13 @@ const layer = Layer.effect(
         )
           return yield* new AssetError({ id, message: `invalid asset path: ${requestPath}` })
         const resolved = path.resolve(item.webRoot, normalized)
-        if (resolved !== item.webRoot && !resolved.startsWith(item.webRoot + path.sep))
+        if (!FSUtil.contains(item.webRoot, resolved))
           return yield* new AssetError({ id, message: `invalid asset path: ${requestPath}` })
         const source = fsFor(item.authority)
-        if (!(yield* source.existsSafe(resolved)))
+        const realRoot = yield* source.resolve(item.webRoot)
+        if (!FSUtil.contains(realRoot, yield* source.resolve(resolved)))
+          return yield* new AssetError({ id, message: `invalid asset path: ${requestPath}` })
+        if (!(yield* source.isFile(resolved)))
           return yield* new AssetError({ id, message: `unable to read asset: ${normalized}` })
         return {
           path: AbsolutePath.make(resolved),
@@ -264,5 +308,5 @@ const layer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [Location.node, FSUtil.node, WorkspaceFileSystem.node, McpV2.node, SkillV2.node],
+  deps: [FSUtil.node, WorkspaceFileSystem.node, McpV2.node, SkillV2.node],
 })

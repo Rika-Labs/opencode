@@ -179,6 +179,7 @@ const serverRoutes = HttpApiBuilder.layer(Api).pipe(
   Layer.provide(handlers),
   Layer.provide(PluginPtyEnvironment.layer),
   Layer.provide([serverHttpApiAuthLayer, v2SchemaErrorLayer]),
+  Layer.provide(ServerAuth.Config.layer),
 )
 
 // `OpenApi.fromApi` is non-trivial; defer until /doc is actually hit so

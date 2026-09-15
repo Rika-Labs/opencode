@@ -316,7 +316,6 @@ describe("Config", () => {
                 },
                 tool_output: { max_lines: 1000, max_bytes: 32768 },
                 mcp: {
-                  timeout: { startup: 5000, request: 60000 },
                   servers: {
                     local: {
                       type: "local",
@@ -329,7 +328,6 @@ describe("Config", () => {
                       type: "remote",
                       url: "https://mcp.example.com/mcp",
                       headers: { Authorization: "Bearer token" },
-                      oauth: { client_id: "client", scope: "read write", callback_port: 19876 },
                       disabled: true,
                       timeout: { startup: 15000 },
                     },
@@ -402,7 +400,6 @@ describe("Config", () => {
             })
             expect(documents[0]?.info.tool_output).toEqual({ max_lines: 1000, max_bytes: 32768 })
             expect(documents[0]?.info.mcp).toEqual({
-              timeout: { startup: 5000, request: 60000 },
               servers: {
                 local: {
                   type: "local",
@@ -415,7 +412,6 @@ describe("Config", () => {
                   type: "remote",
                   url: "https://mcp.example.com/mcp",
                   headers: { Authorization: "Bearer token" },
-                  oauth: { client_id: "client", scope: "read write", callback_port: 19876 },
                   disabled: true,
                   timeout: { startup: 15000 },
                 },
@@ -644,7 +640,6 @@ describe("Config", () => {
               buffer: 10000,
             })
             expect(documents[0]?.info.mcp).toMatchObject({
-              timeout: { request: 5000 },
               servers: {
                 local: {
                   type: "local",
@@ -655,7 +650,6 @@ describe("Config", () => {
                 remote: {
                   type: "remote",
                   url: "https://mcp.example.com",
-                  oauth: { client_id: "client", callback_port: 19876 },
                   timeout: { request: 20000 },
                 },
               },

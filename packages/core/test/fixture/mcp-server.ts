@@ -17,8 +17,13 @@ const tools = new Map<
 
 const server = new Server(
   { name: "mcp-v2-fixture", version: "1.0.0" },
-  { capabilities: { tools: { listChanged: true }, resources: {} } },
+  {
+    capabilities: process.env.FIXTURE_NO_TOOLS
+      ? { resources: {} }
+      : { tools: { listChanged: true }, resources: {} },
+  },
 )
+const withTools = process.env.FIXTURE_NO_TOOLS === undefined
 
 tools.set("echo", {
   description: "Echo the message back",
@@ -27,7 +32,10 @@ tools.set("echo", {
     properties: { message: { type: "string" } },
     required: ["message"],
   },
-  run: (args) => ({ content: [{ type: "text", text: String(args.message) }] }),
+  run: (args) =>
+    args.message === "__fail__"
+      ? { content: [{ type: "text", text: "fixture failure" }], isError: true }
+      : { content: [{ type: "text", text: String(args.message) }] },
 })
 
 tools.set("price", {
@@ -51,23 +59,35 @@ tools.set("add_tool", {
   },
 })
 
-server.setRequestHandler(ListToolsRequestSchema, () =>
-  Promise.resolve({
-    tools: Array.from(tools, ([name, tool]) => ({
-      name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-      _meta: tool._meta,
-    })),
-  }),
-)
+if (process.env.FIXTURE_COLLIDE) {
+  for (const name of ["x.y", "x_y"]) {
+    tools.set(name, {
+      description: `colliding tool ${name}`,
+      inputSchema: { type: "object", properties: {} },
+      run: () => ({ content: [{ type: "text", text: name }] }),
+    })
+  }
+}
 
-server.setRequestHandler(CallToolRequestSchema, (request) => {
-  const tool = tools.get(request.params.name)
-  if (!tool)
-    return Promise.resolve({ content: [{ type: "text", text: `Unknown tool: ${request.params.name}` }], isError: true })
-  return Promise.resolve(tool.run(request.params.arguments ?? {}))
-})
+if (withTools) {
+  server.setRequestHandler(ListToolsRequestSchema, () =>
+    Promise.resolve({
+      tools: Array.from(tools, ([name, tool]) => ({
+        name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        _meta: tool._meta,
+      })),
+    }),
+  )
+
+  server.setRequestHandler(CallToolRequestSchema, (request) => {
+    const tool = tools.get(request.params.name)
+    if (!tool)
+      return Promise.resolve({ content: [{ type: "text", text: `Unknown tool: ${request.params.name}` }], isError: true })
+    return Promise.resolve(tool.run(request.params.arguments ?? {}))
+  })
+}
 
 server.setRequestHandler(ListResourcesRequestSchema, () =>
   Promise.resolve({

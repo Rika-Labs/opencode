@@ -1,15 +1,15 @@
 import { McpV2 } from "@opencode-ai/core/mcp"
-import { ApiMcpError, ApiMcpNotFoundError } from "@opencode-ai/protocol/groups/mcp"
+import { McpError, McpNotFoundError } from "@opencode-ai/protocol/errors"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { Api } from "../api"
 import { response } from "../location"
 
 const notFound = (error: McpV2.NotFoundError) =>
-  new ApiMcpNotFoundError({ name: error.name, message: `MCP server not found: ${error.name}` })
+  new McpNotFoundError({ server: error.name, message: `MCP server not found: ${error.name}` })
 
 const failed = (error: McpV2.McpError) =>
-  new ApiMcpError({
+  new McpError({
     server: error.server,
     operation: error.operation,
     message: error.cause instanceof Error ? error.cause.message : String(error.cause),
@@ -56,7 +56,7 @@ export const McpHandler = HttpApiBuilder.group(Api, "server.mcp", (handlers) =>
       "mcp.connect",
       Effect.fn(function* (ctx) {
         const mcp = yield* McpV2.Service
-        return yield* mcp.connect(ctx.params.server).pipe(Effect.catchTag("McpV2.NotFoundError", notFound))
+        return yield* translate(mcp.connect(ctx.params.server))
       }),
     )
     .handle(

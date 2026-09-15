@@ -687,7 +687,7 @@ describe("SessionRunnerLLM", () => {
       responses = [
         [
           LLMEvent.stepStart({ index: 0 }),
-          LLMEvent.toolCall({ id: "call-price", name: "app_calc_price", input: {} }),
+          LLMEvent.toolCall({ id: "call-price", name: "mcp_app_calc_price", input: {} }),
           LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
           LLMEvent.finish({ reason: "tool-calls" }),
         ],
@@ -696,7 +696,7 @@ describe("SessionRunnerLLM", () => {
 
       yield* session.resume(sessionID)
 
-      expect(requests[0]?.tools.map((tool) => tool.name)).toContain("app_calc_price")
+      expect(requests[0]?.tools.map((tool) => tool.name)).toContain("mcp_app_calc_price")
       expect(permissionAssertions).toMatchObject([
         { sessionID, action: "mcp", resources: ["app_calc:price"] },
       ])

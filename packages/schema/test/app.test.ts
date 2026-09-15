@@ -39,11 +39,22 @@ describe("App contracts", () => {
     ).toEqual({ type: "remote", url: "http://x" })
   })
 
+  test("csp domains reject directive-breaking characters", () => {
+    const decode = Schema.decodeUnknownSync(App.Manifest)
+    const manifest = (csp: unknown) => ({ id: "app_x", name: "x", version: "1", ui: { csp } })
+    expect(decode(manifest({ connectDomains: ["https://api.example.com", "wss://socket.example.com"] })).ui?.csp)
+      .toEqual({ connectDomains: ["https://api.example.com", "wss://socket.example.com"] })
+    expect(() => decode(manifest({ connectDomains: ["example.com; script-src *"] }))).toThrow()
+    expect(() => decode(manifest({ resourceDomains: ['example.com"'] }))).toThrow()
+    expect(() => decode(manifest({ frameDomains: ["'unsafe-inline'"] }))).toThrow()
+    expect(() => decode(manifest({ baseUriDomains: ["a b"] }))).toThrow()
+  })
+
   test("public identifiers are stable and unique", () => {
     const identifiers = [
       App.Csp,
       App.Permissions,
-      App.Timeout,
+      App.McpTimeout,
       App.McpLocal,
       App.McpRemote,
       App.McpServer,
@@ -51,7 +62,6 @@ describe("App contracts", () => {
       App.Ui,
       App.Manifest,
       App.Active,
-      App.Disabled,
       App.Failed,
       App.Status,
       App.Info,

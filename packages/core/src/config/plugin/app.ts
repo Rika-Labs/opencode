@@ -38,15 +38,22 @@ export const Plugin = define({
                 symlink: true,
               })
               .pipe(Effect.orElseSucceed(() => [] as string[]))
-            for (const file of manifests.sort())
+            for (const file of manifests.toSorted())
               draft.app(AbsolutePath.make(path.dirname(file)), authority)
             continue
           }
           const base = entry.path ? path.dirname(entry.path) : location.directory
+          const managed = authority === "workspace" && location.workspaceID !== undefined
           for (const item of entry.info.apps ?? []) {
-            const managed = authority === "workspace" && location.workspaceID !== undefined
             if (item.startsWith("file://")) {
-              draft.app(AbsolutePath.make(fileURLToPath(item)), authority)
+              const file = yield* Effect.try({ try: () => fileURLToPath(item), catch: () => undefined }).pipe(
+                Effect.orElseSucceed(() => undefined),
+              )
+              if (file === undefined) {
+                yield* Effect.logWarning("Ignoring invalid file URL app source", { path: item })
+                continue
+              }
+              draft.app(AbsolutePath.make(file), authority)
               continue
             }
             if (item.startsWith("~/")) {

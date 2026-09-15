@@ -82,30 +82,26 @@ export type PermissionNotFoundError = {
 export const isPermissionNotFoundError = (value: unknown): value is PermissionNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "PermissionNotFoundError"
 
-export type ApiMcpNotFoundError = {
-  readonly _tag: "ApiMcpNotFoundError"
-  readonly name: string
-  readonly message: string
-}
-export const isApiMcpNotFoundError = (value: unknown): value is ApiMcpNotFoundError =>
-  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ApiMcpNotFoundError"
+export type McpNotFoundError = { readonly _tag: "McpNotFoundError"; readonly server: string; readonly message: string }
+export const isMcpNotFoundError = (value: unknown): value is McpNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "McpNotFoundError"
 
-export type ApiMcpError = {
-  readonly _tag: "ApiMcpError"
+export type McpError = {
+  readonly _tag: "McpError"
   readonly server: string
   readonly operation: string
   readonly message: string
 }
-export const isApiMcpError = (value: unknown): value is ApiMcpError =>
-  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ApiMcpError"
+export const isMcpError = (value: unknown): value is McpError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "McpError"
 
-export type ApiAppNotFoundError = {
-  readonly _tag: "ApiAppNotFoundError"
-  readonly id: string
-  readonly message: string
-}
-export const isApiAppNotFoundError = (value: unknown): value is ApiAppNotFoundError =>
-  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ApiAppNotFoundError"
+export type AppNotFoundError = { readonly _tag: "AppNotFoundError"; readonly id: string; readonly message: string }
+export const isAppNotFoundError = (value: unknown): value is AppNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "AppNotFoundError"
+
+export type ForbiddenError = { readonly _tag: "ForbiddenError"; readonly message: string }
+export const isForbiddenError = (value: unknown): value is ForbiddenError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ForbiddenError"
 
 export type PtyNotFoundError = { readonly _tag: "PtyNotFoundError"; readonly ptyID: string; readonly message: string }
 export const isPtyNotFoundError = (value: unknown): value is PtyNotFoundError =>
@@ -2773,12 +2769,9 @@ export type AppsListOutput = {
       readonly permissions?: ReadonlyArray<string>
     }
     readonly directory: string
-    readonly server?: string
+    readonly mcpServer?: string
     readonly hasWeb: boolean
-    readonly status:
-      | { readonly status: "active" }
-      | { readonly status: "disabled" }
-      | { readonly status: "failed"; readonly error: string }
+    readonly status: { readonly status: "active" } | { readonly status: "failed"; readonly error: string }
   }>
 }
 
@@ -2834,12 +2827,9 @@ export type AppsGetOutput = {
       readonly permissions?: ReadonlyArray<string>
     }
     readonly directory: string
-    readonly server?: string
+    readonly mcpServer?: string
     readonly hasWeb: boolean
-    readonly status:
-      | { readonly status: "active" }
-      | { readonly status: "disabled" }
-      | { readonly status: "failed"; readonly error: string }
+    readonly status: { readonly status: "active" } | { readonly status: "failed"; readonly error: string }
   }
 }
 

@@ -1,4 +1,4 @@
-import { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge"
+import { AppBridge, McpUiResourceMetaSchema } from "@modelcontextprotocol/ext-apps/app-bridge"
 import type {
   McpUiHostCapabilities,
   McpUiHostContext,
@@ -57,6 +57,7 @@ interface HostOptions {
   hostContext?: McpUiHostContext
   hooks?: HostHooks
   events?: MessageEvents
+  readyTimeout?: number
 }
 
 export interface AppView {
@@ -94,12 +95,14 @@ export interface InlineInput extends HostOptions {
 export async function portal(input: PortalInput): Promise<AppView> {
   const apps = input.sdk.apps
   if (!apps) throw new Error("sdk.apps is required for AppHost.portal")
-  const info = (await apps.get({ id: input.id, location: input.location })).data
-  const ticket = (await apps.createTicket({ id: input.id, location: input.location })).data.ticket
+  const [info, ticket] = await Promise.all([
+    apps.get({ id: input.id, location: input.location }),
+    apps.createTicket({ id: input.id, location: input.location }),
+  ])
   const base = input.baseUrl ?? globalThis.location?.origin
   if (!base) throw new Error("baseUrl is required when window.location is unavailable")
-  const url = new URL(`/api/app/${encodeURIComponent(input.id)}/web/?ticket=${encodeURIComponent(ticket)}`, base)
-  const view = attach(input.iframe, input, hostBridge(input, input.server ?? info.server ?? input.id), url.origin)
+  const url = new URL(`/api/app/${encodeURIComponent(input.id)}/web/?ticket=${encodeURIComponent(ticket.data.ticket)}`, base)
+  const view = attach(input.iframe, input, hostBridge(input, input.server ?? info.data.mcpServer ?? input.id), "null")
   input.iframe.setAttribute("sandbox", input.sandbox ?? "allow-scripts allow-forms")
   input.iframe.src = url.toString()
   return view
@@ -113,8 +116,10 @@ export async function inline(input: InlineInput): Promise<AppView> {
   if (!content?.text) throw new Error(`resource ${input.resourceUri} has no text content`)
   const html = content.text
   const meta = uiMeta(content.meta)
-  const proxyUrl = input.proxy?.url
-  const origin = proxyUrl ? new URL(proxyUrl, globalThis.location?.origin ?? undefined).origin : "null"
+  const proxy = input.proxy?.url
+    ? new URL(input.proxy.url, globalThis.location?.origin ?? undefined)
+    : undefined
+  if (proxy && proxy.origin === globalThis.location?.origin) throw new Error("proxy url must be cross-origin")
   const bridge = hostBridge(input, input.server)
   bridge.addEventListener("sandboxready", () => {
     void bridge.sendSandboxResourceReady({
@@ -127,17 +132,19 @@ export async function inline(input: InlineInput): Promise<AppView> {
   const tool = input.tool
   if (tool) {
     bridge.addEventListener("initialized", () => {
-      if (tool.arguments) void bridge.sendToolInput({ arguments: tool.arguments })
+      void bridge.sendToolInput({ arguments: tool.arguments ?? {} })
       if (tool.result) void bridge.sendToolResult(callResult(tool.result))
     })
   }
-  const view = attach(input.iframe, input, bridge, origin)
-  if (proxyUrl) {
-    input.iframe.src = new URL(proxyUrl, globalThis.location?.origin ?? undefined).toString()
+  const view = attach(input.iframe, input, bridge, proxy ? proxy.origin : "null")
+  if (proxy) {
+    proxy.searchParams.set("host", globalThis.location?.origin ?? "")
+    input.iframe.setAttribute("sandbox", "allow-scripts allow-same-origin")
+    input.iframe.src = proxy.toString()
     return view
   }
   input.iframe.setAttribute("sandbox", "allow-scripts")
-  input.iframe.srcdoc = proxyHtml()
+  input.iframe.srcdoc = proxyHtml(globalThis.location?.origin)
   return view
 }
 
@@ -156,7 +163,11 @@ function attach(iframe: HTMLIFrameElement, options: HostOptions, bridge: AppBrid
     resolveReady = resolve
     rejectReady = reject
   })
+  const timeout = options.readyTimeout ?? 30_000
+  const timer = setTimeout(() => rejectReady(new Error(`app view did not initialize within ${timeout}ms`)), timeout)
+  if (typeof timer === "object") timer.unref()
   bridge.addEventListener("initialized", () => {
+    clearTimeout(timer)
     options.hooks?.onInitialized?.()
     resolveReady()
   })
@@ -171,6 +182,7 @@ function attach(iframe: HTMLIFrameElement, options: HostOptions, bridge: AppBrid
     close: async () => {
       if (closed) return
       closed = true
+      clearTimeout(timer)
       try {
         await bridge.teardownResource({}, { timeout: 1000 })
       } catch {}
@@ -240,7 +252,8 @@ function hostBridge(options: HostOptions, server: string): AppBridge {
 function uiMeta(meta: unknown): McpUiResourceMeta | undefined {
   const ui = record(meta)?.["ui"]
   if (ui === undefined) return undefined
-  return ui as McpUiResourceMeta
+  const parsed = McpUiResourceMetaSchema.safeParse(ui)
+  return parsed.success ? parsed.data : undefined
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

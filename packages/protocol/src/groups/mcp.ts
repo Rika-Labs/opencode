@@ -2,26 +2,8 @@ import { Location } from "@opencode-ai/schema/location"
 import { Mcp } from "@opencode-ai/schema/mcp"
 import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
+import { McpError, McpNotFoundError } from "../errors"
 import { LocationQuery, locationQueryOpenApi } from "./location"
-
-export class ApiMcpNotFoundError extends Schema.TaggedErrorClass<ApiMcpNotFoundError>()(
-  "ApiMcpNotFoundError",
-  {
-    name: Schema.String,
-    message: Schema.String,
-  },
-  { httpApiStatus: 404 },
-) {}
-
-export class ApiMcpError extends Schema.TaggedErrorClass<ApiMcpError>()(
-  "ApiMcpError",
-  {
-    server: Schema.String,
-    operation: Schema.String,
-    message: Schema.String,
-  },
-  { httpApiStatus: 502 },
-) {}
 
 const ServerQuery = Schema.Struct({
   ...LocationQuery.fields,
@@ -68,7 +50,7 @@ export const McpGroup = HttpApiGroup.make("server.mcp")
       query: LocationQuery,
       payload: Schema.Struct({ arguments: Schema.Json.pipe(Schema.optional) }),
       success: Location.response(Mcp.CallResult),
-      error: [ApiMcpNotFoundError, ApiMcpError],
+      error: [McpNotFoundError, McpError],
     })
       .annotateMerge(locationQueryOpenApi)
       .annotateMerge(
@@ -99,7 +81,7 @@ export const McpGroup = HttpApiGroup.make("server.mcp")
       params: { server: Schema.String },
       query: ReadQuery,
       success: Location.response(Mcp.ResourceContents),
-      error: [ApiMcpNotFoundError, ApiMcpError],
+      error: [McpNotFoundError, McpError],
     })
       .annotateMerge(locationQueryOpenApi)
       .annotateMerge(
@@ -115,7 +97,7 @@ export const McpGroup = HttpApiGroup.make("server.mcp")
       params: { server: Schema.String },
       query: LocationQuery,
       success: HttpApiSchema.NoContent,
-      error: ApiMcpNotFoundError,
+      error: [McpNotFoundError, McpError],
     })
       .annotateMerge(locationQueryOpenApi)
       .annotateMerge(
@@ -131,7 +113,7 @@ export const McpGroup = HttpApiGroup.make("server.mcp")
       params: { server: Schema.String },
       query: LocationQuery,
       success: HttpApiSchema.NoContent,
-      error: ApiMcpNotFoundError,
+      error: McpNotFoundError,
     })
       .annotateMerge(locationQueryOpenApi)
       .annotateMerge(

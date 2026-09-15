@@ -1,7 +1,7 @@
 import fs from "fs/promises"
 import path from "path"
 import { describe, expect } from "bun:test"
-import { Effect, Layer, Stream } from "effect"
+import { Cause, Effect, Exit, Layer, Option, Stream } from "effect"
 import { AppV2 } from "@opencode-ai/core/app"
 import { Config } from "@opencode-ai/core/config"
 import { ConfigAppPlugin } from "@opencode-ai/core/config/plugin/app"
@@ -36,7 +36,6 @@ async function writeApp(directory: string, manifest?: Record<string, unknown>) {
     "---\nname: helper\ndescription: app skill\n---\nhelp with things\n",
   )
   await fs.writeFile(path.join(directory, "web/index.html"), "<html>app</html>")
-  await fs.writeFile(path.join(directory, "web/asset.0123456789ab.js"), "console.log(1)")
   await fs.writeFile(
     path.join(directory, "app.json"),
     JSON.stringify(
@@ -191,7 +190,7 @@ describe("AppV2", () => {
             expect(list).toHaveLength(1)
             expect(list[0]).toMatchObject({
               directory: appDir,
-              server: "app_calc",
+              mcpServer: "app_calc",
               hasWeb: true,
               status: { status: "active" },
             })
@@ -211,9 +210,13 @@ describe("AppV2", () => {
               "<html>app</html>",
             )
 
-            for (const bad of ["../app.json", "%2e%2e/app.json", "/etc/passwd", "..\\escape"]) {
+            for (const bad of ["../app.json", "%2e%2e/app.json", "/etc/passwd", "..\\escape", "x/../../y"]) {
               const exit = yield* apps.asset("app_calc" as AppV2.ID, bad).pipe(Effect.exit)
               expect(exit._tag).toBe("Failure")
+              if (Exit.isFailure(exit)) {
+                const failure = Cause.findErrorOption(exit.cause)
+                expect(Option.isSome(failure) && failure.value._tag === "AppV2.AssetError").toBe(true)
+              }
             }
 
             const missing = yield* apps.asset("app_calc" as AppV2.ID, "nope.js").pipe(Effect.exit)
@@ -362,6 +365,53 @@ describe("AppV2", () => {
     30_000,
   )
 
+  it.live("skips a malformed file:// app source without aborting materialization", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const appDir = path.join(tmp.path, "calc")
+          yield* Effect.promise(() => writeApp(appDir))
+          const config = Config.Service.of({
+            entries: () =>
+              Effect.succeed([
+                new Config.Document({
+                  type: "document",
+                  path: path.join(tmp.path, "opencode.json"),
+                  origin: "global",
+                  info: new Config.Info({ apps: ["file://remote.example/x", "./calc"] }),
+                }),
+              ]),
+          })
+          return yield* Effect.gen(function* () {
+            const apps = yield* AppV2.Service
+            const fsutil = yield* FSUtil.Service
+
+            yield* ConfigAppPlugin.Plugin.effect({} as PluginContext).pipe(
+              Effect.provideService(Config.Service, config),
+              Effect.provideService(FSUtil.Service, fsutil),
+              Effect.provideService(WorkspaceFileSystem.Service, fsutil),
+              Effect.provideService(
+                Location.Service,
+                Location.Service.of(location({ directory: AbsolutePath.make(tmp.path) })),
+              ),
+              Effect.provideService(Global.Service, Global.Service.of(Global.make({ home: tmp.path }))),
+              Effect.provideService(Npm.Service, npm),
+              Effect.provideService(AppV2.Service, apps),
+            )
+
+            const list = yield* apps.list()
+            expect(list.map((item) => item.manifest.id as string)).toEqual(["app_calc"])
+            expect(list[0].status).toEqual({ status: "active" })
+          }).pipe(Effect.provide(appLayer(tmp.path)))
+        }),
+      ),
+    ),
+    30_000,
+  )
+
   it.live("discovers workspace apps through the workspace filesystem and refuses workspace mcp in managed workspaces", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
@@ -433,6 +483,221 @@ describe("AppV2", () => {
               "<html>app</html>",
             )
           }).pipe(Effect.provide(managedLayer(logical, guestDir)))
+        }),
+      ),
+    ),
+    30_000,
+  )
+
+  it.live("marks an app with a missing app.json as failed with a fallback id", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const appDir = path.join(tmp.path, "calc")
+          yield* Effect.promise(() => fs.mkdir(appDir, { recursive: true }))
+          return yield* Effect.gen(function* () {
+            const apps = yield* AppV2.Service
+            yield* apps.transform((draft) => {
+              draft.app(AbsolutePath.make(appDir))
+            })
+            const list = yield* apps.list()
+            expect(list).toHaveLength(1)
+            expect(list[0].manifest.id as string).toBe("app_calc")
+            expect(list[0].status).toEqual({ status: "failed", error: "missing or unreadable app.json" })
+          }).pipe(Effect.provide(appLayer(tmp.path)))
+        }),
+      ),
+    ),
+    30_000,
+  )
+
+  it.live("marks an app with an invalid manifest as failed and recovers its id", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const appDir = path.join(tmp.path, "calc")
+          yield* Effect.promise(() => writeApp(appDir))
+          yield* Effect.promise(() =>
+            fs.writeFile(
+              path.join(appDir, "app.json"),
+              JSON.stringify({ id: "app_broken", name: 42, version: "1.0.0" }),
+            ),
+          )
+          return yield* Effect.gen(function* () {
+            const apps = yield* AppV2.Service
+            yield* apps.transform((draft) => {
+              draft.app(AbsolutePath.make(appDir))
+            })
+            const list = yield* apps.list()
+            expect(list).toHaveLength(1)
+            expect(list[0].manifest.id as string).toBe("app_broken")
+            expect(list[0].status).toEqual({ status: "failed", error: "invalid app.json manifest" })
+          }).pipe(Effect.provide(appLayer(tmp.path)))
+        }),
+      ),
+    ),
+    30_000,
+  )
+
+  it.live("marks an app whose web.root escapes the app directory as failed", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const appDir = path.join(tmp.path, "calc")
+          yield* Effect.promise(() =>
+            writeApp(appDir, {
+              id: "app_calc",
+              name: "Calculator",
+              version: "1.0.0",
+              web: { root: "../" },
+            }),
+          )
+          return yield* Effect.gen(function* () {
+            const apps = yield* AppV2.Service
+            yield* apps.transform((draft) => {
+              draft.app(AbsolutePath.make(appDir))
+            })
+            const list = yield* apps.list()
+            expect(list).toHaveLength(1)
+            expect(list[0].manifest.id as string).toBe("app_calc")
+            expect(list[0].status).toEqual({
+              status: "failed",
+              error: "web.root escapes the app directory: ../",
+            })
+          }).pipe(Effect.provide(appLayer(tmp.path)))
+        }),
+      ),
+    ),
+    30_000,
+  )
+
+  it.live("marks an app whose mcp.cwd escapes the app directory as failed", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const appDir = path.join(tmp.path, "calc")
+          yield* Effect.promise(() =>
+            writeApp(appDir, {
+              id: "app_calc",
+              name: "Calculator",
+              version: "1.0.0",
+              mcp: { type: "local", command: ["echo"], cwd: "../" },
+            }),
+          )
+          return yield* Effect.gen(function* () {
+            const apps = yield* AppV2.Service
+            yield* apps.transform((draft) => {
+              draft.app(AbsolutePath.make(appDir))
+            })
+            const list = yield* apps.list()
+            expect(list).toHaveLength(1)
+            expect(list[0].manifest.id as string).toBe("app_calc")
+            expect(list[0].status).toEqual({
+              status: "failed",
+              error: "mcp.cwd escapes the app directory: ../",
+            })
+          }).pipe(Effect.provide(appLayer(tmp.path)))
+        }),
+      ),
+    ),
+    30_000,
+  )
+
+  it.live("marks the second app with a duplicate manifest id as failed", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const first = path.join(tmp.path, "one")
+          const second = path.join(tmp.path, "two")
+          const manifest = { id: "app_dup", name: "Dup", version: "1.0.0" }
+          yield* Effect.promise(() => writeApp(first, manifest))
+          yield* Effect.promise(() => writeApp(second, manifest))
+          return yield* Effect.gen(function* () {
+            const apps = yield* AppV2.Service
+            yield* apps.transform((draft) => {
+              draft.app(AbsolutePath.make(first))
+              draft.app(AbsolutePath.make(second))
+            })
+            const list = yield* apps.list()
+            expect(list).toHaveLength(2)
+            expect(list[0].status).toEqual({ status: "active" })
+            expect(list[1].manifest.id as string).toBe("app_dup")
+            expect(list[1].status).toEqual({ status: "failed", error: "duplicate app id" })
+          }).pipe(Effect.provide(appLayer(tmp.path)))
+        }),
+      ),
+    ),
+    30_000,
+  )
+
+  it.live("fails get with NotFoundError for an unknown app id", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const apps = yield* AppV2.Service
+          const exit = yield* apps.get("app_missing" as AppV2.ID).pipe(Effect.exit)
+          expect(exit._tag).toBe("Failure")
+          if (Exit.isFailure(exit)) {
+            const failure = Cause.findErrorOption(exit.cause)
+            expect(Option.isSome(failure) && failure.value._tag === "AppV2.NotFoundError").toBe(true)
+          }
+        }).pipe(Effect.provide(appLayer(tmp.path))),
+      ),
+    ),
+    30_000,
+  )
+
+  it.live("rejects assets that escape the web root through symlinks", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const appDir = path.join(tmp.path, "calc")
+          const outside = path.join(tmp.path, "secret.txt")
+          yield* Effect.promise(() =>
+            writeApp(appDir, {
+              id: "app_calc",
+              name: "Calculator",
+              version: "1.0.0",
+              web: { root: "web" },
+            }).then(() =>
+              fs
+                .writeFile(outside, "secret")
+                .then(() => fs.symlink(outside, path.join(appDir, "web", "link.txt"))),
+            ),
+          )
+          return yield* Effect.gen(function* () {
+            const apps = yield* AppV2.Service
+            yield* apps.transform((draft) => {
+              draft.app(AbsolutePath.make(appDir))
+            })
+            const exit = yield* apps.asset("app_calc" as AppV2.ID, "link.txt").pipe(Effect.exit)
+            expect(exit._tag).toBe("Failure")
+            if (Exit.isFailure(exit)) {
+              const failure = Cause.findErrorOption(exit.cause)
+              expect(Option.isSome(failure) && failure.value._tag === "AppV2.AssetError").toBe(true)
+            }
+          }).pipe(Effect.provide(appLayer(tmp.path)))
         }),
       ),
     ),
