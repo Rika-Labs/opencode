@@ -56,6 +56,7 @@ export const open = Effect.fn("Rivet.AgentOS.open")(function* (options: Options)
           AgentOs.create({
             sidecar: { kind: "explicit", handle: sidecar },
             database: { type: "sqlite_file", path: options.database },
+            user: { uid: 0, gid: 0, username: "root" },
             mounts: [
               {
                 path: "/workspace",
