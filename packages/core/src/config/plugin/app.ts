@@ -46,9 +46,14 @@ export const Plugin = define({
           const managed = authority === "workspace" && location.workspaceID !== undefined
           for (const item of entry.info.apps ?? []) {
             if (item.startsWith("file://")) {
-              const file = yield* Effect.try({ try: () => fileURLToPath(item), catch: () => undefined }).pipe(
-                Effect.orElseSucceed(() => undefined),
-              )
+              const file = yield* Effect.try({
+                try: () => {
+                  const url = new URL(item)
+                  if (url.hostname !== "" && url.hostname !== "localhost") throw new Error("remote file URL host")
+                  return fileURLToPath(url)
+                },
+                catch: () => undefined,
+              }).pipe(Effect.orElseSucceed(() => undefined))
               if (file === undefined) {
                 yield* Effect.logWarning("Ignoring invalid file URL app source", { path: item })
                 continue
