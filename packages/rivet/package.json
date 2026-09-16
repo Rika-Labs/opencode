@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",
-    "@rikalabs/agentos-core": "0.2.19-rika.1",
+    "@rikalabs/agentos-core": "0.2.19-rika.2",
     "@rivetkit/effect": "2.3.17",
     "effect": "catalog:",
     "fuzzysort": "catalog:",
@@ -23,7 +23,7 @@
     "sandbox-agent": "0.4.2"
   },
   "devDependencies": {
-    "@rikalabs/agentos-runtime-core": "0.2.19-rika.1",
+    "@rikalabs/agentos-runtime-core": "0.2.19-rika.2",
     "@tsconfig/bun": "catalog:",
     "@types/bun": "catalog:",
     "@typescript/native-preview": "catalog:",

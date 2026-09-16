@@ -750,7 +750,7 @@
       "version": "1.18.30",
       "dependencies": {
         "@opencode-ai/core": "workspace:*",
-        "@rikalabs/agentos-core": "0.2.19-rika.1",
+        "@rikalabs/agentos-core": "0.2.19-rika.2",
         "@rivetkit/effect": "2.3.17",
         "effect": "catalog:",
         "fuzzysort": "catalog:",
@@ -758,7 +758,7 @@
         "sandbox-agent": "0.4.2",
       },
       "devDependencies": {
-        "@rikalabs/agentos-runtime-core": "0.2.19-rika.1",
+        "@rikalabs/agentos-runtime-core": "0.2.19-rika.2",
         "@tsconfig/bun": "catalog:",
         "@types/bun": "catalog:",
         "@typescript/native-preview": "catalog:",
@@ -2622,21 +2622,21 @@
 
     "@remix-run/router": ["@remix-run/router@1.9.0", "", {}, "sha512-bV63itrKBC0zdT27qYm6SDZHlkXwFL1xMBuhkn+X7l0+IIhNaH5wuuvZKp6eKhCD4KFhujhfhCT1YxXW6esUIA=="],
 
-    "@rikalabs/agentos-core": ["@rikalabs/agentos-core@0.2.19-rika.1", "", { "dependencies": { "@agentclientprotocol/sdk": "0.16.1", "@agentos-software/claude-code": "0.2.7", "@agentos-software/codex-cli": "0.3.4", "@agentos-software/opencode": "0.2.7", "@agentos-software/pi": "0.2.7", "@aws-sdk/client-s3": "^3.1019.0", "@rikalabs/agentos-runtime-core": "0.2.19-rika.1", "@rikalabs/agentos-sidecar": "0.2.19-rika.1", "@rikalabs/agentos-software-common": "0.2.19-rika.1", "@rikalabs/agentos-software-manifest": "0.2.19-rika.1", "@rivetkit/bare-ts": "^0.6.2", "@xterm/headless": "^6.0.0", "better-sqlite3": "^12.8.0", "croner": "^10.0.1", "googleapis": "^144.0.0", "long-timeout": "^0.1.1", "minimatch": "^10.2.4", "zod": "^4.1.11", "zod-to-json-schema": "^3.25.2" } }, "sha512-deYv5Vs3gUimf7XfDY2Q6zq64UBJokjGaPprJr54WYKJBocp/yFvAhM2UWfYmFvUHsBG0HWv1B+Eyx3aYnu8gQ=="],
+    "@rikalabs/agentos-core": ["@rikalabs/agentos-core@0.2.19-rika.2", "", { "dependencies": { "@agentclientprotocol/sdk": "0.16.1", "@agentos-software/claude-code": "0.2.7", "@agentos-software/codex-cli": "0.3.4", "@agentos-software/opencode": "0.2.7", "@agentos-software/pi": "0.2.7", "@aws-sdk/client-s3": "^3.1019.0", "@rikalabs/agentos-runtime-core": "0.2.19-rika.2", "@rikalabs/agentos-sidecar": "0.2.19-rika.2", "@rikalabs/agentos-software-common": "0.2.19-rika.2", "@rikalabs/agentos-software-manifest": "0.2.19-rika.2", "@rivetkit/bare-ts": "^0.6.2", "@xterm/headless": "^6.0.0", "better-sqlite3": "^12.8.0", "croner": "^10.0.1", "googleapis": "^144.0.0", "long-timeout": "^0.1.1", "minimatch": "^10.2.4", "zod": "^4.1.11", "zod-to-json-schema": "^3.25.2" } }, "sha512-ZBCuZp8a3KCLLkbhF902OhPVow4YKKqhYdFJw4aQfpJNiDt6c4af4qxL740dAmS0KtK2G2HpcGAjhUD1rr19+Q=="],
 
-    "@rikalabs/agentos-runtime-core": ["@rikalabs/agentos-runtime-core@0.2.19-rika.1", "", { "dependencies": { "@rikalabs/agentos-runtime-sidecar": "0.2.19-rika.1", "@rivetkit/bare-ts": "^0.6.2", "zod": "^4.1.11" } }, "sha512-o47Esvu6zqz09x3MHXJSWWI8DFcX3gEsU7apRgUqDfuQf/wKOv85zjiovphPy4XTueNAfgxI6/YyaYTOIh+hKA=="],
+    "@rikalabs/agentos-runtime-core": ["@rikalabs/agentos-runtime-core@0.2.19-rika.2", "", { "dependencies": { "@rikalabs/agentos-runtime-sidecar": "0.2.19-rika.2", "@rivetkit/bare-ts": "^0.6.2", "zod": "^4.1.11" } }, "sha512-YJk0HVw+Y7GBd+cjPWYPyj5m8dtt110ullCi1OeqPQvSJHM+ODxE3Fj/AO/UiI7Ms9cFSKWGbcdbOqzj6n7d5w=="],
 
-    "@rikalabs/agentos-runtime-sidecar": ["@rikalabs/agentos-runtime-sidecar@0.2.19-rika.1", "", { "optionalDependencies": { "@rikalabs/agentos-runtime-sidecar-linux-x64-gnu": "0.2.19-rika.1" } }, "sha512-AVbUx7BTYT5+BXrL2yQmTsw4Y2VR6vvlai/T1IDtGr7oLlFz+D6LfeapeqPdCB6DgkcYhKWV5aFt/bvA6VL+0w=="],
+    "@rikalabs/agentos-runtime-sidecar": ["@rikalabs/agentos-runtime-sidecar@0.2.19-rika.2", "", { "optionalDependencies": { "@rikalabs/agentos-runtime-sidecar-linux-x64-gnu": "0.2.19-rika.2" } }, "sha512-vbmHXXVtgFPDo7KQGYkOBtERKxuJHDZioplNqvR8wEAmxGxk4IQb7OU7sVb9+5AdIfsD8QjN6NmL5pHl+4Pvqg=="],
 
-    "@rikalabs/agentos-runtime-sidecar-linux-x64-gnu": ["@rikalabs/agentos-runtime-sidecar-linux-x64-gnu@0.2.19-rika.1", "", { "os": "linux", "cpu": "x64" }, "sha512-QE0b9Ab8MhNqD2gxUx4cGFVg8bMs/b4kxoz57zCc6ypyQvQ3YvXvNB+SbZohC1qzT5Oyf/fNsFOvP66HiuA7Zw=="],
+    "@rikalabs/agentos-runtime-sidecar-linux-x64-gnu": ["@rikalabs/agentos-runtime-sidecar-linux-x64-gnu@0.2.19-rika.2", "", { "os": "linux", "cpu": "x64" }, "sha512-40LlmHVHhbSgJkyPfxylD00Ov152PGxmqxoocjaYuD73HgVLqRlKazgNcmnRWtuFlX8NZO5Kh33N2BZGuCW/Cg=="],
 
-    "@rikalabs/agentos-sidecar": ["@rikalabs/agentos-sidecar@0.2.19-rika.1", "", { "optionalDependencies": { "@rikalabs/agentos-sidecar-linux-x64-gnu": "0.2.19-rika.1" } }, "sha512-e76UnC9jTpxVwTxX9hXXSe2aOtI4LGvDy3c8tIwwvR91gLvD9FrNuwE4Ugk//XjBAJ9QTImlv2gS2SSGW/by7A=="],
+    "@rikalabs/agentos-sidecar": ["@rikalabs/agentos-sidecar@0.2.19-rika.2", "", { "optionalDependencies": { "@rikalabs/agentos-sidecar-linux-x64-gnu": "0.2.19-rika.2" } }, "sha512-24/jBuotXVTbNAWzx5Ou3xonY+BMKxEZz3YNaAUJJ+FugQ46kc1NiPm/Mxw0RPR2BKnX1yrSU4TG87Sm6D4Kxg=="],
 
-    "@rikalabs/agentos-sidecar-linux-x64-gnu": ["@rikalabs/agentos-sidecar-linux-x64-gnu@0.2.19-rika.1", "", { "os": "linux", "cpu": "x64" }, "sha512-UHHISi+F7BgsQaeaMJa8PtIMX8tNa7WfitDVhQZfxpmUHIJqdtuXU9yxJ2SjRoIHz6z7YS4ZScAHmSqm5sAisA=="],
+    "@rikalabs/agentos-sidecar-linux-x64-gnu": ["@rikalabs/agentos-sidecar-linux-x64-gnu@0.2.19-rika.2", "", { "os": "linux", "cpu": "x64" }, "sha512-mGtFIWPhifQUAQayvV/0I7awEbCHX2n+hqxeAbA1HQ4UrcaDaz+6GNpdpya2Vc1HDHnLSdpwrh68pXyg9a+nMw=="],
 
-    "@rikalabs/agentos-software-common": ["@rikalabs/agentos-software-common@0.2.19-rika.1", "", { "dependencies": { "@agentos-software/coreutils": "0.3.4", "@agentos-software/diffutils": "0.3.4", "@agentos-software/findutils": "0.3.4", "@agentos-software/gawk": "0.3.4", "@agentos-software/grep": "0.3.4", "@agentos-software/gzip": "0.3.4", "@agentos-software/sed": "0.3.4", "@agentos-software/tar": "0.3.5" } }, "sha512-WM1u6CuJuUH14MDu7Nr53pqvrIkuua2MkPqfzC7QK5UjLcMLSzepjDeXvrFhVioeG6AezMtEL1uSVrojsjXUjg=="],
+    "@rikalabs/agentos-software-common": ["@rikalabs/agentos-software-common@0.2.19-rika.2", "", { "dependencies": { "@agentos-software/coreutils": "0.3.4", "@agentos-software/diffutils": "0.3.4", "@agentos-software/findutils": "0.3.4", "@agentos-software/gawk": "0.3.4", "@agentos-software/grep": "0.3.4", "@agentos-software/gzip": "0.3.4", "@agentos-software/sed": "0.3.4", "@agentos-software/tar": "0.3.5" } }, "sha512-ely6ndaiIxnNCC3+8KO0JOSE05koeFa8oG/4puyulNO2nuSBViLCEgLgPNihDMEXkxUlpoMbsD6t3nP9R2tr6w=="],
 
-    "@rikalabs/agentos-software-manifest": ["@rikalabs/agentos-software-manifest@0.2.19-rika.1", "", {}, "sha512-Teq4Q8DPR2LZrPeq8WPj2989PXUlniW6yjJc//gGTaB4wG8Xc1G9VKXMlsyTa07FnDsLxbIifpHl4UE0S5KfBQ=="],
+    "@rikalabs/agentos-software-manifest": ["@rikalabs/agentos-software-manifest@0.2.19-rika.2", "", {}, "sha512-O5ZufHRqBc73f6sY4GFlPBy6v0xf3dr9VV6MiPKKqZBYlNgjrSo1vVYis+Bkh/Np0iGkMWpxJ1T9CCco3hlLvw=="],
 
     "@rivet-dev/agent-os-core": ["@rivet-dev/agent-os-core@0.1.1", "", { "dependencies": { "@rivet-dev/agent-os-posix": "0.1.0", "@rivet-dev/agent-os-python": "0.1.0", "@secure-exec/core": "^0.2.1", "@secure-exec/nodejs": "^0.2.1", "@secure-exec/v8": "^0.2.1", "croner": "^10.0.1", "long-timeout": "^0.1.1", "secure-exec": "^0.2.1" } }, "sha512-Uw5jr+gUXDY7TDUFqlypjGe1BD2KL9kTHPNo/f1iNS1R+l9IWuvT+FF/MXsLOEkc3fB06OPVu2ZvUuNwp9MpLQ=="],
 
