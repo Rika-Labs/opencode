@@ -105,6 +105,7 @@ for (const item of packages) {
   delete manifest.bin
   delete manifest.overrides
   delete manifest["$schema"]
+  manifest.publishConfig = { access: "public" }
   for (const key of ["dependencies", "optionalDependencies", "peerDependencies", "devDependencies"]) {
     const current = manifest[key]
     if (current && typeof current === "object") {
@@ -127,12 +128,16 @@ if (publish) {
   for (const item of packages) {
     const dest = join(destRoot, item.name)
     const name = `@rikalabs/${item.name}`
-    const already = await $`npm view ${name}@${version} version`.nothrow()
-    if (already.exitCode === 0) {
+    const result = await $`npm publish --access public --tag ${channel}`.cwd(dest).nothrow()
+    const output = `${result.stdout}${result.stderr}`
+    if (result.exitCode === 0) {
+      console.log(`published ${name}@${version}`)
+      continue
+    }
+    if (output.includes("cannot publish over the previously published versions")) {
       console.log(`already published ${name}@${version}`)
       continue
     }
-    await $`npm publish --access public --tag ${channel}`.cwd(dest)
-    console.log(`published ${name}@${version}`)
+    throw new Error(`failed to publish ${name}@${version}\n${output}`)
   }
 }
