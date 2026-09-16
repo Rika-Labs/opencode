@@ -102,6 +102,9 @@ for (const item of packages) {
   manifest.version = version
   manifest.private = false
   manifest.files = ["src", "package.json", "README.md"]
+  delete manifest.bin
+  delete manifest.overrides
+  delete manifest["$schema"]
   for (const key of ["dependencies", "optionalDependencies", "peerDependencies", "devDependencies"]) {
     const current = manifest[key]
     if (current && typeof current === "object") {
