@@ -86,7 +86,7 @@ test("animates todo lifecycle without replaying it across session tabs", async (
   await switchSession(page, otherID, otherTitle)
   await expect(dock).toHaveCount(0)
 
-  const returningOpen = sampleDock(page, 700)
+  const returningOpen = sampleDock(page, 5_000)
   await switchSession(page, sourceID, sourceTitle)
   const openSamples = (await returningOpen).filter((sample) => sample.present)
   expect(openSamples.length).toBeGreaterThan(0)
@@ -104,7 +104,7 @@ test("animates todo lifecycle without replaying it across session tabs", async (
   events.push(todoEvent(sourceID, []))
 
   await switchSession(page, otherID, otherTitle)
-  const returningEmpty = sampleDock(page, 700)
+  const returningEmpty = sampleDock(page, 5_000)
   await switchSession(page, sourceID, sourceTitle)
   await expect(dock).toHaveCount(0)
   expect((await returningEmpty).every((sample) => !sample.present)).toBe(true)
