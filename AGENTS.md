@@ -6,6 +6,48 @@
 - Default new branches and worktrees to `v2`, or `origin/v2` when the local `v2` ref is unavailable, and default pull requests to target `v2`. Use another base or target branch when the requester explicitly instructs it.
 - Local `main` ref may not exist; use `v2` or `origin/v2` for diffs.
 
+## Rika-Labs fork: stay on official OpenCode v2
+
+This repo is the Rika-Labs fork of `anomalyco/opencode`. Official v2 is the source of truth. Fork-only work is Rivet/E2B workspace drivers and the MCP Apps stack (AppV2, portal tickets, AppHost, `apps-host`). Do not rebase those away when updating.
+
+### Remotes and versions
+
+- `origin` is `Rika-Labs/opencode`. `upstream` is `https://github.com/anomalyco/opencode.git`.
+- Official v2 lives on `upstream/2.0` and tags `v2.0.x`. The published official embed SDK is `@opencode/sdk`.
+- Our published package is one umbrella: `@rikalabs/opencode@<official>-rika.N` (example `2.0.5-rika.1`). Bump the official segment when merging a new tag; bump `-rika.N` only for fork-only releases.
+- Leave `@rikalabs/sdk` unused. Do not republish the old 1.18 names (`@rikalabs/sdk-next`, `@rikalabs/rivet`, `@rikalabs/apps-host`, `@rikalabs/core`, `@rikalabs/schema`, and the rest of that set).
+- Consumers import `@rikalabs/opencode/sdk`, `@rikalabs/opencode/sdk/effect`, `@rikalabs/opencode/rivet`, `@rikalabs/opencode/cli`, and `@rikalabs/opencode/apps-host`. Do not vendor this repo into other products.
+
+### Sync official v2
+
+```sh
+git fetch upstream --tags
+git checkout v2
+git merge v2.0.X
+```
+
+Use the newest `v2.0.x` tag, not `upstream/dev` (that line is still 1.18). If the tag is not a parent of `v2`, merge the tag anyway and keep the fork files listed below.
+
+Official wins on every file they own. Re-apply only the fork seams after the merge:
+
+- `packages/rivet` — Rivet + E2B + local `WorkspaceDriver`s registered through `OpenCode.create({ workspaceProviders })`
+- `packages/apps-host` — MCP Apps iframe host
+- `packages/rikalabs-opencode` — umbrella package identity
+- `script/publish-rikalabs.ts` and `.github/workflows/publish-libs.yml`
+- MCP Apps patches inside official packages: `packages/core/src/mcp-app.ts`, `packages/core/src/app-host.ts`, `packages/core/src/app/ticket.ts`, `packages/core/src/config/plugin/app.ts`, `packages/schema/src/app.ts`, `packages/schema/src/app-ticket.ts`, `packages/protocol/src/groups/app.ts`, `packages/server/src/handlers/app.ts`, plus the instance/plugin/protocol/sdk wiring that mounts them
+
+Official `packages/core/src/app.ts` is product metadata (`name` / `version` / `channel` / `useragent`). Never overwrite it with AppV2. Keep AppV2 in `mcp-app.ts`. Official 2.0 MCP already spawns stdio through `Environment.spawner`, so do not reintroduce a 1.18 `location.isolated` flag.
+
+After a protocol merge, run `bun run generate` from `packages/client`. After dependency changes, `bun install --minimum-release-age=0` if `bunfig.toml` `minimumReleaseAge` blocks a fork pin such as `effect-sandbox`.
+
+### Publish
+
+```sh
+OPENCODE_VERSION=2.0.X-rika.N OPENCODE_CHANNEL=latest bun ./script/publish-rikalabs.ts --publish
+```
+
+Or dispatch `.github/workflows/publish-libs.yml` with that version. The script packs `dist/rikalabs-opencode` as `@rikalabs/opencode` and remaps `@opencode/*` imports into the tarball. Pass `--unpublish-old` only when leftover 1.18 `@rikalabs/*` packages must be removed. The umbrella has no `opencode` bin; CLI is the `./cli` subpath only.
+
 ## Live V2 TUI Testing
 
 - Run `bun run dev:live` from a development worktree to test its TUI against the currently elected `opencode` background server and live sessions.

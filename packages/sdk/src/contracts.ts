@@ -1,4 +1,6 @@
 export { Agent } from "@opencode/schema/agent"
+export { App } from "@opencode/schema/app"
+export { AppTicket } from "@opencode/schema/app-ticket"
 export { Command } from "@opencode/schema/command"
 export { Config } from "@opencode/schema/config"
 export { Credential } from "@opencode/schema/credential"

@@ -27,6 +27,7 @@ import { LocationGroup } from "./groups/location.js"
 import { IntegrationGroup } from "./groups/integration.js"
 import { WebSearchGroup } from "./groups/websearch.js"
 import { McpGroup } from "./groups/mcp.js"
+import { AppGroup } from "./groups/app.js"
 import { CredentialGroup } from "./groups/credential.js"
 import { ProjectGroup } from "./groups/project.js"
 import { WorktreeGroup } from "./groups/worktree.js"
@@ -43,6 +44,7 @@ type LocationGroups<LocationId extends HttpApiMiddleware.AnyId> =
   | HttpApiGroup.AddMiddleware<typeof IntegrationGroup, LocationId>
   | HttpApiGroup.AddMiddleware<typeof WebSearchGroup, LocationId>
   | HttpApiGroup.AddMiddleware<typeof McpGroup, LocationId>
+  | HttpApiGroup.AddMiddleware<typeof AppGroup, LocationId>
   | HttpApiGroup.AddMiddleware<typeof ProjectGroup, LocationId>
   | HttpApiGroup.AddMiddleware<typeof FileSystemGroup, LocationId>
   | HttpApiGroup.AddMiddleware<typeof CommandGroup, LocationId>
@@ -162,6 +164,7 @@ const makeApiFromGroup = <
     .add(ProviderGroup.middleware(locationMiddleware))
     .add(IntegrationGroup.middleware(locationMiddleware))
     .add(McpGroup.middleware(locationMiddleware))
+    .add(AppGroup.middleware(locationMiddleware))
     .add(CredentialGroup)
     .add(ProjectGroup.middleware(locationMiddleware))
     .add(makeFormGroup(locationMiddleware))

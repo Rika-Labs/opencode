@@ -1,0 +1,57 @@
+name: publish embed libraries
+run-name: "Publish @rikalabs/opencode ${{ inputs.version }} (${{ inputs.channel }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Exact npm version, without a v prefix (for example 2.0.5-rika.1)"
+        required: true
+        type: string
+      channel:
+        description: "npm dist-tag"
+        required: true
+        default: next
+        type: choice
+        options:
+          - latest
+          - next
+      unpublish_old:
+        description: "Unpublish leftover 1.18 @rikalabs/* embed packages"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: publish-libs
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.repository_owner == 'Rika-Labs' || github.repository_owner == 'rika-labs'
+    runs-on: ubuntu-24.04
+    env:
+      OPENCODE_VERSION: ${{ inputs.version }}
+      OPENCODE_CHANNEL: ${{ inputs.channel }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Pack @rikalabs/opencode
+        run: bun ./script/publish-rikalabs.ts
+
+      - name: Publish @rikalabs/opencode
+        run: bun ./script/publish-rikalabs.ts --publish ${{ inputs.unpublish_old && '--unpublish-old' || '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

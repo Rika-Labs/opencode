@@ -4,6 +4,7 @@ import { NodeHttpServer } from "@effect/platform-node"
 import { Bus } from "@opencode/core/bus"
 import { SessionRestart } from "@opencode/core/session/execution/restart"
 import { InstallationEvent } from "@opencode/schema/installation-event"
+import { isAppAssetPath } from "@opencode/protocol/groups/app"
 import { hasPtyConnectTicketURL } from "@opencode/protocol/groups/pty"
 import { hasPersistentPtyConnectTicketURL } from "@opencode/protocol/groups/persistent-pty"
 import { Cause, Context, Effect, Exit, Latch, Layer, Option, Ref, Scope } from "effect"
@@ -195,7 +196,8 @@ function dispatch(
     const app = yield* Ref.get(application)
     const ready = state.type === "ready" && Option.isSome(app)
     if (
-      (!ready || (!hasPtyConnectTicketURL(url) && !hasPersistentPtyConnectTicketURL(url))) &&
+      (!ready ||
+        (!hasPtyConnectTicketURL(url) && !hasPersistentPtyConnectTicketURL(url) && !isAppAssetPath(url.pathname))) &&
       !(yield* authorizedRequest(request, auth))
     )
       return unauthorized()

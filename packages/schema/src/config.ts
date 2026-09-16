@@ -78,6 +78,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   mcp: ConfigMCP.Info.pipe(optional).annotate({
     description: "MCP server configuration",
   }),
+  apps: Schema.String.pipe(Schema.Array, optional).annotate({
+    description: "Additional app directories, file URLs, or npm packages",
+  }),
   compaction: ConfigCompaction.Info.pipe(optional).annotate({
     description: "Conversation compaction behavior",
   }),

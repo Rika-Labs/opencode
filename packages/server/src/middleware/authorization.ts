@@ -2,6 +2,7 @@ import { ServerAuth } from "../auth"
 import { UnauthorizedError } from "@opencode/protocol/errors"
 import { Authorization } from "@opencode/protocol/middleware/authorization"
 export { Authorization } from "@opencode/protocol/middleware/authorization"
+import { isAppAssetPath } from "@opencode/protocol/groups/app"
 import { hasPtyConnectTicketURL } from "@opencode/protocol/groups/pty"
 import { hasPersistentPtyConnectTicketURL } from "@opencode/protocol/groups/persistent-pty"
 import { Effect, Encoding, Layer, Redacted } from "effect"
@@ -51,7 +52,8 @@ export const authorizationLayer = Layer.effect(
         // Browsers cannot set headers on WebSocket upgrades, so a ticketed PTY connect skips
         // credential checks here; the connect handler consumes and validates the ticket.
         const url = new URL(request.url, "http://localhost")
-        if (hasPtyConnectTicketURL(url) || hasPersistentPtyConnectTicketURL(url)) return yield* effect
+        if (hasPtyConnectTicketURL(url) || hasPersistentPtyConnectTicketURL(url) || isAppAssetPath(url.pathname))
+          return yield* effect
         if (yield* authorizedRequest(request, config)) return yield* effect
         yield* HttpEffect.appendPreResponseHandler((_request, response) =>
           Effect.succeed(HttpServerResponse.setHeader(response, "www-authenticate", WWW_AUTHENTICATE)),

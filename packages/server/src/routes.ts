@@ -21,6 +21,7 @@ import { SessionTransfer } from "@opencode/core/session/transfer"
 import { ShellSelect } from "@opencode/core/shell/select"
 import { Job } from "@opencode/core/job"
 import { Mcp } from "@opencode/core/mcp/index"
+import { AppTicket } from "@opencode/core/app/ticket"
 import { Global } from "@opencode/util/global"
 import { InstructionDiscovery } from "@opencode/core/instruction-discovery"
 import { LocationServiceMap } from "@opencode/core/location-service-map"
@@ -72,6 +73,7 @@ const applicationServiceNodes = [
   LocationActivity.node,
   SessionRestart.node,
   Workspace.node,
+  AppTicket.node,
 ] as const
 const applicationServices = LayerNode.group(applicationServiceNodes)
 

@@ -299,6 +299,25 @@ export type McpResourceTemplate = {
   mimeType?: string
 }
 
+export type AppMcpTimeout = { startup?: number; request?: number }
+
+export type AppWeb = { root: string; entry?: string | null }
+
+export type AppCsp = {
+  connectDomains?: Array<string>
+  resourceDomains?: Array<string>
+  frameDomains?: Array<string>
+  baseUriDomains?: Array<string>
+}
+
+export type AppPermissions = { camera?: boolean; microphone?: boolean; geolocation?: boolean; clipboardWrite?: boolean }
+
+export type AppActive = { status: "active" }
+
+export type AppFailed = { status: "failed"; error: string }
+
+export type AppTicketTicket = { ticket: string; expires_in: number }
+
 export type ProjectVcs = string
 
 export type ProjectIcon = { url?: string; override?: string; color?: string }
@@ -1451,6 +1470,20 @@ export type McpServer = {
 
 export type McpResourceCatalog = { resources: Array<McpResource>; templates: Array<McpResourceTemplate> }
 
+export type AppMcpLocal = {
+  type: "local"
+  command: Array<string>
+  cwd?: string
+  environment?: { [x: string]: string }
+  timeout?: AppMcpTimeout
+}
+
+export type AppMcpRemote = { type: "remote"; url: string; headers?: { [x: string]: string }; timeout?: AppMcpTimeout }
+
+export type AppUi = { csp?: AppCsp; permissions?: AppPermissions }
+
+export type AppStatus = AppActive | AppFailed
+
 export type Project = {
   id: string
   canonical: string
@@ -1849,6 +1882,8 @@ export type ModelInfo = {
   limit: { context: number; input?: number; output: number }
 }
 
+export type AppMcpServer = AppMcpLocal | AppMcpRemote
+
 export type FormField1 =
   | FormStringField1
   | FormNumberField1
@@ -2032,6 +2067,7 @@ export type ConfigEntry =
                 }
           }
         }
+        apps?: Array<string>
         compaction?: { auto?: boolean; keep?: { tokens?: number }; buffer?: number }
         skills?: Array<string>
         commands?: {
@@ -2165,6 +2201,18 @@ export type SessionMessageAssistantTool1 = {
 
 export type FormFields = [FormField, ...Array<FormField>]
 
+export type AppManifest = {
+  id: string
+  name: string
+  version: string
+  description?: string
+  mcp?: AppMcpServer
+  skills?: Array<string>
+  web?: AppWeb
+  ui?: AppUi
+  permissions?: Array<string>
+}
+
 export type FormFields2 = [FormField1, ...Array<FormField1>]
 
 export type SessionsResponse = { data: Array<SessionInfo>; cursor: { previous?: string | null; next?: string | null } }
@@ -2218,6 +2266,14 @@ export type FormDetail = {
 export type IntegrationOAuthMethod = { id: string; type: "oauth"; label: string; form?: FormFields }
 
 export type IntegrationKeyMethod = { type: "key"; label?: string; form?: FormFields }
+
+export type AppInfo = {
+  manifest: AppManifest
+  directory: string
+  mcpServer?: string
+  hasWeb: boolean
+  status: AppStatus
+}
 
 export type FormInfo1 = { id: string; sessionID: string; title: string; metadata?: FormMetadata1; fields: FormFields2 }
 
@@ -2588,6 +2644,14 @@ export type McpServerNotFoundError = {
 export const isMcpServerNotFoundError = (value: unknown): value is McpServerNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "McpServerNotFoundError"
 
+export type AppNotFoundError = { readonly _tag: "AppNotFoundError"; readonly id: string; readonly message: string }
+export const isAppNotFoundError = (value: unknown): value is AppNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "AppNotFoundError"
+
+export type ForbiddenError = { readonly _tag: "ForbiddenError"; readonly message: string }
+export const isForbiddenError = (value: unknown): value is ForbiddenError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ForbiddenError"
+
 export type ProjectNotFoundError = {
   readonly _tag: "ProjectNotFoundError"
   readonly projectID: string
@@ -2629,10 +2693,6 @@ export const isRpcInternalError = (value: unknown): value is RpcInternalError =>
 export type PtyNotFoundError = { readonly _tag: "PtyNotFoundError"; readonly ptyID: string; readonly message: string }
 export const isPtyNotFoundError = (value: unknown): value is PtyNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "PtyNotFoundError"
-
-export type ForbiddenError = { readonly _tag: "ForbiddenError"; readonly message: string }
-export const isForbiddenError = (value: unknown): value is ForbiddenError =>
-  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ForbiddenError"
 
 export type ShellNotFoundError = { readonly _tag: "ShellNotFoundError"; readonly id: string; readonly message: string }
 export const isShellNotFoundError = (value: unknown): value is ShellNotFoundError =>
@@ -5569,6 +5629,41 @@ export type McpResourceCatalogInput = {
 }
 
 export type McpResourceCatalogOutput = { location: LocationPublicRef; data: McpResourceCatalog }
+
+export type ServerAppListInput = {
+  readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]
+}
+
+export type ServerAppListOutput = { location: LocationPublicRef; data: Array<AppInfo> }
+
+export type ServerAppGetInput = {
+  readonly id: { readonly id: string }["id"]
+  readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]
+}
+
+export type ServerAppGetOutput = { location: LocationPublicRef; data: AppInfo }
+
+export type ServerAppTicketInput = {
+  readonly id: { readonly id: string }["id"]
+  readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]
+}
+
+export type ServerAppTicketOutput = { location: LocationPublicRef; data: AppTicketTicket }
+
+export type ServerAppAssetInput = {
+  readonly id: { readonly id: string }["id"]
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined } | undefined
+    readonly ticket?: string | undefined
+  }["location"]
+  readonly ticket?: {
+    readonly location?: { readonly directory?: string | undefined } | undefined
+    readonly ticket?: string | undefined
+  }["ticket"]
+  readonly path: string
+}
+
+export type ServerAppAssetOutput = globalThis.Uint8Array
 
 export type CredentialUpdateInput = {
   readonly credentialID: { readonly credentialID: string }["credentialID"]

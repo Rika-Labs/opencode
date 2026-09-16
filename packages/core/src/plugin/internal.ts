@@ -20,6 +20,9 @@ import { ConfigImagePlugin } from "../config/plugin/image.js"
 import { ConfigInstructionPlugin } from "../config/plugin/instruction.js"
 import { ConfigLocationWatcherPlugin } from "../config/plugin/location-watcher.js"
 import { ConfigMcpPlugin } from "../config/plugin/mcp.js"
+import { ConfigAppPlugin } from "../config/plugin/app.js"
+import { AppV2 } from "../mcp-app.js"
+import { AppHost } from "../app-host.js"
 import { ConfigProviderPlugin } from "../config/plugin/provider.js"
 import { ConfigPolicyPlugin } from "../config/plugin/policy.js"
 import { ConfigReferencePlugin } from "../config/plugin/reference.js"
@@ -123,6 +126,8 @@ const services = [
   Location.Service,
   ModelsDev.Service,
   Mcp.Service,
+  AppV2.Service,
+  AppHost.Service,
   Npm.Service,
   Permission.Service,
   Form.Service,
@@ -174,6 +179,8 @@ export const requirements = LayerNode.group([
   Location.node,
   ModelsDev.node,
   Mcp.node,
+  AppV2.node,
+  AppHost.node,
   Npm.node,
   Permission.node,
   Form.node,
@@ -247,6 +254,7 @@ const post = [
   ConfigToolOutputPlugin.Plugin,
   ConfigCompatibilityPlugin.Plugin,
   ConfigSkillPlugin.Plugin,
+  ConfigAppPlugin.Plugin,
   ConfigProviderPlugin.Plugin,
   ConfigWebSearchPlugin.Plugin,
   ConfigPolicyPlugin.Plugin,

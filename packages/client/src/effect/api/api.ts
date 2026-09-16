@@ -1688,6 +1688,160 @@ export interface McpApi<E = never> {
   readonly resource: { readonly catalog: McpResourceCatalogOperation<E> }
 }
 
+export type ServerAppListInput = { readonly location?: { readonly directory?: string | undefined } | undefined }
+export type ServerAppListOutput = {
+  readonly location: Location.PublicRef
+  readonly data: ReadonlyArray<{
+    readonly manifest: {
+      readonly id: string & Brand.Brand<"AppID">
+      readonly name: string
+      readonly version: string
+      readonly description?: string | undefined
+      readonly mcp?:
+        | (
+            | {
+                readonly type: "local"
+                readonly command: ReadonlyArray<string>
+                readonly cwd?: string | undefined
+                readonly environment?: { readonly [x: string]: string } | undefined
+                readonly timeout?:
+                  | { readonly startup?: number | undefined; readonly request?: number | undefined }
+                  | undefined
+              }
+            | {
+                readonly type: "remote"
+                readonly url: string
+                readonly headers?: { readonly [x: string]: string } | undefined
+                readonly timeout?:
+                  | { readonly startup?: number | undefined; readonly request?: number | undefined }
+                  | undefined
+              }
+          )
+        | undefined
+      readonly skills?: ReadonlyArray<RelativePath> | undefined
+      readonly web?: { readonly root: RelativePath; readonly entry: RelativePath } | undefined
+      readonly ui?:
+        | {
+            readonly csp?:
+              | {
+                  readonly connectDomains?: ReadonlyArray<string> | undefined
+                  readonly resourceDomains?: ReadonlyArray<string> | undefined
+                  readonly frameDomains?: ReadonlyArray<string> | undefined
+                  readonly baseUriDomains?: ReadonlyArray<string> | undefined
+                }
+              | undefined
+            readonly permissions?:
+              | {
+                  readonly camera?: boolean | undefined
+                  readonly microphone?: boolean | undefined
+                  readonly geolocation?: boolean | undefined
+                  readonly clipboardWrite?: boolean | undefined
+                }
+              | undefined
+          }
+        | undefined
+      readonly permissions?: ReadonlyArray<string> | undefined
+    }
+    readonly directory: AbsolutePath
+    readonly mcpServer?: string | undefined
+    readonly hasWeb: boolean
+    readonly status: { readonly status: "active" } | { readonly status: "failed"; readonly error: string }
+  }>
+}
+export type ServerAppListOperation<E = never> = (input?: ServerAppListInput) => Effect.Effect<ServerAppListOutput, E>
+
+export type ServerAppGetInput = {
+  readonly id: string & Brand.Brand<"AppID">
+  readonly location?: { readonly directory?: string | undefined } | undefined
+}
+export type ServerAppGetOutput = {
+  readonly location: Location.PublicRef
+  readonly data: {
+    readonly manifest: {
+      readonly id: string & Brand.Brand<"AppID">
+      readonly name: string
+      readonly version: string
+      readonly description?: string | undefined
+      readonly mcp?:
+        | (
+            | {
+                readonly type: "local"
+                readonly command: ReadonlyArray<string>
+                readonly cwd?: string | undefined
+                readonly environment?: { readonly [x: string]: string } | undefined
+                readonly timeout?:
+                  | { readonly startup?: number | undefined; readonly request?: number | undefined }
+                  | undefined
+              }
+            | {
+                readonly type: "remote"
+                readonly url: string
+                readonly headers?: { readonly [x: string]: string } | undefined
+                readonly timeout?:
+                  | { readonly startup?: number | undefined; readonly request?: number | undefined }
+                  | undefined
+              }
+          )
+        | undefined
+      readonly skills?: ReadonlyArray<RelativePath> | undefined
+      readonly web?: { readonly root: RelativePath; readonly entry: RelativePath } | undefined
+      readonly ui?:
+        | {
+            readonly csp?:
+              | {
+                  readonly connectDomains?: ReadonlyArray<string> | undefined
+                  readonly resourceDomains?: ReadonlyArray<string> | undefined
+                  readonly frameDomains?: ReadonlyArray<string> | undefined
+                  readonly baseUriDomains?: ReadonlyArray<string> | undefined
+                }
+              | undefined
+            readonly permissions?:
+              | {
+                  readonly camera?: boolean | undefined
+                  readonly microphone?: boolean | undefined
+                  readonly geolocation?: boolean | undefined
+                  readonly clipboardWrite?: boolean | undefined
+                }
+              | undefined
+          }
+        | undefined
+      readonly permissions?: ReadonlyArray<string> | undefined
+    }
+    readonly directory: AbsolutePath
+    readonly mcpServer?: string | undefined
+    readonly hasWeb: boolean
+    readonly status: { readonly status: "active" } | { readonly status: "failed"; readonly error: string }
+  }
+}
+export type ServerAppGetOperation<E = never> = (input: ServerAppGetInput) => Effect.Effect<ServerAppGetOutput, E>
+
+export type ServerAppTicketInput = {
+  readonly id: string & Brand.Brand<"AppID">
+  readonly location?: { readonly directory?: string | undefined } | undefined
+}
+export type ServerAppTicketOutput = {
+  readonly location: Location.PublicRef
+  readonly data: { readonly ticket: string; readonly expires_in: number }
+}
+export type ServerAppTicketOperation<E = never> = (
+  input: ServerAppTicketInput,
+) => Effect.Effect<ServerAppTicketOutput, E>
+
+export type ServerAppAssetInput = {
+  readonly id: string & Brand.Brand<"AppID">
+  readonly location?: { readonly directory?: string | undefined } | undefined
+  readonly ticket?: string | undefined
+}
+export type ServerAppAssetOutput = globalThis.Uint8Array
+export type ServerAppAssetOperation<E = never> = (input: ServerAppAssetInput) => Effect.Effect<ServerAppAssetOutput, E>
+
+export interface ServerAppApi<E = never> {
+  readonly list: ServerAppListOperation<E>
+  readonly get: ServerAppGetOperation<E>
+  readonly ticket: ServerAppTicketOperation<E>
+  readonly asset: ServerAppAssetOperation<E>
+}
+
 export type CredentialUpdateInput = { readonly credentialID: Credential.ID; readonly label: string }
 export type CredentialUpdateOutput = void
 export type CredentialUpdateOperation<E = never> = (
@@ -2315,6 +2469,7 @@ export interface AppApi<E = never> {
   readonly provider: ProviderApi<E>
   readonly integration: IntegrationApi<E>
   readonly mcp: McpApi<E>
+  readonly "server.app": ServerAppApi<E>
   readonly credential: CredentialApi<E>
   readonly project: ProjectApi<E>
   readonly form: FormApi<E>

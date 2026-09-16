@@ -21,6 +21,8 @@ import { Location } from "./location.js"
 import { FileAccess } from "./file-access.js"
 import { ModelResolver } from "./model-resolver.js"
 import { Mcp } from "./mcp/index.js"
+import { AppV2 } from "./mcp-app.js"
+import { AppHost } from "./app-host.js"
 import { Permission } from "./permission.js"
 import { Plugin } from "./plugin.js"
 import { PluginHooks } from "./plugin/hooks.js"
@@ -86,6 +88,8 @@ const nodes = [
   FileMutation.node,
   Formatter.node,
   Mcp.node,
+  AppV2.node,
+  AppHost.node,
   Permission.node,
   Tool.node,
   ToolOutput.node,

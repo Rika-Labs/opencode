@@ -1,4 +1,6 @@
 export { Agent } from "./agent.js"
+export { App } from "./app.js"
+export { AppTicket } from "./app-ticket.js"
 export { Command } from "./command.js"
 export { Config } from "./config.js"
 export { Connection } from "./connection.js"

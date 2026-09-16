@@ -258,3 +258,12 @@ export class ShellNotFoundError extends Schema.TaggedError<ShellNotFoundError>()
   },
   { httpApiStatus: 404 },
 ) {}
+
+export class AppNotFoundError extends Schema.TaggedError<AppNotFoundError>()(
+  "AppNotFoundError",
+  {
+    id: Schema.String,
+    message: Schema.String,
+  },
+  { httpApiStatus: 404 },
+) {}

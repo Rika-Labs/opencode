@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@rikalabs/opencode",
+  "version": "2.0.5-rika.1",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    "./sdk": "./src/sdk.ts",
+    "./sdk/effect": "./src/sdk-effect.ts",
+    "./rivet": "./src/rivet.ts",
+    "./cli": "./src/cli.ts",
+    "./apps-host": "./src/apps-host.ts"
+  },
+  "files": [
+    "src",
+    "packages"
+  ],
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@opencode/apps-host": "workspace:*",
+    "@opencode/cli": "workspace:*",
+    "@opencode/core": "workspace:*",
+    "@opencode/rivet": "workspace:*",
+    "@opencode/sdk": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native-preview": "catalog:"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@opencode/rivet",
+  "version": "2.0.5",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@opencode/core": "workspace:*",
+    "@opencode/schema": "workspace:*",
+    "@opencode/util": "workspace:*",
+    "@rivetkit/effect": "2.3.17",
+    "effect": "catalog:",
+    "effect-sandbox": "0.1.0",
+    "rivetkit": "2.3.17"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native-preview": "catalog:"
+  }
+}

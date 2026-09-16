@@ -143,6 +143,14 @@ import type {
   McpDisconnectOutput,
   McpResourceCatalogInput,
   McpResourceCatalogOutput,
+  ServerAppListInput,
+  ServerAppListOutput,
+  ServerAppGetInput,
+  ServerAppGetOutput,
+  ServerAppTicketInput,
+  ServerAppTicketOutput,
+  ServerAppAssetInput,
+  ServerAppAssetOutput,
   CredentialUpdateInput,
   CredentialUpdateOutput,
   CredentialActivateInput,
@@ -1346,6 +1354,57 @@ export function make(options: ClientOptions) {
             requestOptions,
           ),
       },
+    },
+    "server.app": {
+      list: (input?: ServerAppListInput, requestOptions?: RequestOptions) =>
+        request<ServerAppListOutput>(
+          {
+            method: "GET",
+            path: `/api/app`,
+            query: { location: input?.["location"] },
+            successStatus: 200,
+            declaredStatuses: [400, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      get: (input: ServerAppGetInput, requestOptions?: RequestOptions) =>
+        request<ServerAppGetOutput>(
+          {
+            method: "GET",
+            path: `/api/app/${encodeURIComponent(input.id)}`,
+            query: { location: input["location"] },
+            successStatus: 200,
+            declaredStatuses: [400, 401, 404],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      ticket: (input: ServerAppTicketInput, requestOptions?: RequestOptions) =>
+        request<ServerAppTicketOutput>(
+          {
+            method: "POST",
+            path: `/api/app/${encodeURIComponent(input.id)}/ticket`,
+            query: { location: input["location"] },
+            successStatus: 200,
+            declaredStatuses: [400, 401, 403, 404],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      asset: (input: ServerAppAssetInput, requestOptions?: RequestOptions) =>
+        request<ServerAppAssetOutput>(
+          {
+            method: "GET",
+            path: `/api/app/${encodeURIComponent(input.id)}/web/${encodePath(input.path)}`,
+            query: { location: input["location"], ticket: input["ticket"] },
+            successStatus: 200,
+            declaredStatuses: [400, 401],
+            empty: false,
+            binary: true,
+          },
+          requestOptions,
+        ),
     },
     credential: {
       update: (input: CredentialUpdateInput, requestOptions?: RequestOptions) =>

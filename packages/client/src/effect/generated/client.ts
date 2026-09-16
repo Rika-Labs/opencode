@@ -149,6 +149,14 @@ import type {
   McpDisconnectOutput,
   McpResourceCatalogInput,
   McpResourceCatalogOutput,
+  ServerAppListInput,
+  ServerAppListOutput,
+  ServerAppGetInput,
+  ServerAppGetOutput,
+  ServerAppTicketInput,
+  ServerAppTicketOutput,
+  ServerAppAssetInput,
+  ServerAppAssetOutput,
   CredentialUpdateInput,
   CredentialUpdateOutput,
   CredentialActivateInput,
@@ -999,6 +1007,40 @@ const adaptGroupMcp = (raw: RawClient["server.mcp"]) => ({
   resource: { catalog: EndpointMcpResourceCatalog(raw) },
 })
 
+const EndpointServerAppList = (raw: RawClient["server.app"]) => (input?: ServerAppListInput) =>
+  preserveEffect<ServerAppListOutput>()(
+    raw["app.list"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
+const EndpointServerAppGet = (raw: RawClient["server.app"]) => (input: ServerAppGetInput) =>
+  preserveEffect<ServerAppGetOutput>()(
+    raw["app.get"]({ params: { id: input["id"] }, query: { location: input["location"] } }).pipe(
+      Effect.mapError(mapClientError),
+    ),
+  )
+
+const EndpointServerAppTicket = (raw: RawClient["server.app"]) => (input: ServerAppTicketInput) =>
+  preserveEffect<ServerAppTicketOutput>()(
+    raw["app.ticket"]({ params: { id: input["id"] }, query: { location: input["location"] } }).pipe(
+      Effect.mapError(mapClientError),
+    ),
+  )
+
+const EndpointServerAppAsset = (raw: RawClient["server.app"]) => (input: ServerAppAssetInput) =>
+  preserveEffect<ServerAppAssetOutput>()(
+    raw["app.asset"]({
+      params: { id: input["id"] },
+      query: { location: input["location"], ticket: input["ticket"] },
+    }).pipe(Effect.mapError(mapClientError)),
+  )
+
+const adaptGroupServerApp = (raw: RawClient["server.app"]) => ({
+  list: EndpointServerAppList(raw),
+  get: EndpointServerAppGet(raw),
+  ticket: EndpointServerAppTicket(raw),
+  asset: EndpointServerAppAsset(raw),
+})
+
 const EndpointCredentialUpdate = (raw: RawClient["server.credential"]) => (input: CredentialUpdateInput) =>
   preserveEffect<CredentialUpdateOutput>()(
     raw["credential.update"]({
@@ -1531,6 +1573,7 @@ const adaptClient = (raw: RawClient) => ({
   provider: adaptGroupProvider(raw["server.provider"]),
   integration: adaptGroupIntegration(raw["server.integration"]),
   mcp: adaptGroupMcp(raw["server.mcp"]),
+  "server.app": adaptGroupServerApp(raw["server.app"]),
   credential: adaptGroupCredential(raw["server.credential"]),
   project: adaptGroupProject(raw["server.project"]),
   form: adaptGroupForm(raw["server.form"]),

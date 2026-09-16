@@ -4,6 +4,7 @@ export * from "./generated/index.js"
 export { OpenCode } from "./client.js"
 export type {
   AgentApi,
+  AppApi,
   CommandApi,
   ConfigApi,
   EventApi,
