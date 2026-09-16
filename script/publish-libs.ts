@@ -130,12 +130,12 @@ if (publish) {
     const name = `@rikalabs/${item.name}`
     const result = await $`npm publish --access public --tag ${channel}`.cwd(dest).nothrow()
     const output = `${result.stdout}${result.stderr}`
-    if (result.exitCode === 0) {
-      console.log(`published ${name}@${version}`)
-      continue
-    }
-    if (output.includes("cannot publish over the previously published versions")) {
-      console.log(`already published ${name}@${version}`)
+    if (result.exitCode === 0 || output.includes("cannot publish over the previously published versions")) {
+      const access = await $`npm access public ${name}`.nothrow()
+      if (access.exitCode !== 0 && !`${access.stdout}${access.stderr}`.includes("already")) {
+        console.log(`access public ${name}: ${access.stderr || access.stdout}`)
+      }
+      console.log(`${result.exitCode === 0 ? "published" : "already published"} ${name}@${version}`)
       continue
     }
     throw new Error(`failed to publish ${name}@${version}\n${output}`)
