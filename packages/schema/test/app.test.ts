@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
-import { App } from "../src/app"
+import { App } from "../src/app.js"
 
 describe("App contracts", () => {
   test("decodes a manifest with defaults and omitted optionals", () => {
