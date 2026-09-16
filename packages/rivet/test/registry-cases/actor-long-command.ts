@@ -30,10 +30,13 @@ const withProvider = async (
   )
 }
 
-test("Rivet default process completes a command running longer than 60 seconds", { timeout: 100_000 }, async () => {
+test("Rivet default process completes a command running longer than 60 seconds", {
+  timeout: 300_000,
+  skip: process.env.E2B_LIVE === "1" ? false : "set E2B_LIVE=1 to run the E2B live command test",
+}, async () => {
   await withProvider((provider) =>
     Effect.gen(function* () {
-      const workspace = yield* provider.create({ name: "long-command", environment: { type: "agentos" } })
+      const workspace = yield* provider.create({ name: "long-command", environment: { type: "sandbox", provider: "e2b" } })
       const binding = yield* provider.bind(workspace.location)
       const result = yield* binding.process.run(
         ChildProcess.make("sh", ["-c", "sleep 65; printf long-command-finished"]),
@@ -45,10 +48,13 @@ test("Rivet default process completes a command running longer than 60 seconds",
   )
 })
 
-test("Core location graph uses the Rivet filesystem and process binding", { timeout: 30_000 }, async () => {
+test("Core location graph uses the Rivet filesystem and process binding", {
+  timeout: 300_000,
+  skip: process.env.E2B_LIVE === "1" ? false : "set E2B_LIVE=1 to run the E2B live command test",
+}, async () => {
   await withProvider((provider) =>
     Effect.gen(function* () {
-      const workspace = yield* provider.create({ name: "location-graph", environment: { type: "agentos" } })
+      const workspace = yield* provider.create({ name: "location-graph", environment: { type: "sandbox", provider: "e2b" } })
       yield* Effect.gen(function* () {
         const files = yield* FileMutation.Service
         const filesystem = yield* WorkspaceFileSystem.Service

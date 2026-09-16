@@ -7,6 +7,21 @@ import { Client, Registry } from "@rivetkit/effect"
 import { Effect, Layer, Result } from "effect"
 import { layer, WorkspaceActor } from "../src/workspace-actor.ts"
 
+export const live = process.env.E2B_LIVE === "1"
+
+/** Actor initialize payload for the selected execution target: a real E2B sandbox, or a local host directory. */
+export const actorProvider = live ? { provider: "e2b" as const } : { provider: "local" as const }
+
+const temporaryRoots: string[] = []
+
+/** Provider create target for the selected execution target; `directory` is where the caller sees the workspace. */
+export async function providerTarget() {
+  if (live) return { target: { type: "sandbox", provider: "e2b" } as const, directory: "/workspace" }
+  const root = await mkdtemp(join(tmpdir(), "opencode-rivet-local-"))
+  temporaryRoots.push(root)
+  return { target: { type: "local", root } as const, directory: root }
+}
+
 export const storageDirectory = await mkdtemp(join(tmpdir(), "opencode-rivet-registry-"))
 const registry = Registry.layer({ sqlite: "local", namespace: "default", noWelcome: true })
 const actors = layer({ storageDirectory }).pipe(Layer.provideMerge(registry))
@@ -30,4 +45,5 @@ export const registryRuntime = readiness.pipe(Layer.provideMerge(client))
 
 process.on("exit", () => {
   rmSync(storageDirectory, { recursive: true, force: true })
+  for (const root of temporaryRoots) rmSync(root, { recursive: true, force: true })
 })

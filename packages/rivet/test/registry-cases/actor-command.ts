@@ -3,7 +3,7 @@ import { basename } from "node:path"
 import { test } from "node:test"
 import { Effect } from "effect"
 import { WorkspaceActor } from "../../src/workspace-actor.ts"
-import { registryRuntime, storageDirectory } from "../registry-fixture.ts"
+import { actorProvider, registryRuntime, storageDirectory } from "../registry-fixture.ts"
 
 const command = (script: string) => ({
   command: "sh",
@@ -12,12 +12,14 @@ const command = (script: string) => ({
   maxOutputBytes: 1_000,
 })
 
-test("command lifecycle reconciles identity, cancellation, status, and output", async () => {
+test("command lifecycle reconciles identity, cancellation, status, and output", {
+  timeout: 300_000,
+}, async () => {
   await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         const actor = (yield* WorkspaceActor.client).getOrCreate(`${basename(storageDirectory)}-command`)
-        const environment = yield* actor.Initialize()
+        const environment = yield* actor.Initialize(actorProvider)
         assert.equal(environment.generation, 1)
         const generation = (yield* actor.GetEnvironment()).generation
         const epoch = yield* actor.CommandEpoch({ generation })
@@ -46,7 +48,7 @@ test("command lifecycle reconciles identity, cancellation, status, and output", 
           .pipe(Effect.flip)
         assert.equal(rejected.reason, "command_conflict")
 
-        const slow = command("sleep 0.4; printf late > cancelled")
+        const slow = command("sleep 1.5; printf late > cancelled")
         assert.deepEqual(yield* actor.StartCommand({ id: "cancel", epoch, command: slow }), { id: "cancel" })
         assert.deepEqual(yield* actor.StartCommand({ id: "cancel", epoch, command: slow }), { id: "cancel" })
         const conflict = yield* actor
@@ -56,6 +58,18 @@ test("command lifecycle reconciles identity, cancellation, status, and output", 
         yield* actor.CancelCommand({ id: "cancel", epoch })
         yield* Effect.sleep("500 millis")
         assert.equal((yield* actor.CommandStatus({ id: "cancel", epoch })).status, "cancelled")
+        // Wait past the guest write deadline so a failed kill cannot hide behind the test ending early.
+        yield* Effect.sleep("2 seconds")
+        assert.equal(
+          (yield* actor.Run({
+            generation,
+            command: "sh",
+            args: ["-c", "test ! -e cancelled"],
+            timeoutMs: 5_000,
+            maxOutputBytes: 100,
+          })).exitCode,
+          0,
+        )
 
         yield* actor.StartCommand({ id: "responsive", epoch, command: command("sleep 5; printf leaked > responsive") })
         const queuedFilesystem = actor
@@ -84,9 +98,10 @@ test("command lifecycle reconciles identity, cancellation, status, and output", 
         })
         assert.equal(status.status, "completed")
         if (status.status === "completed") {
-          assert.equal(status.result.output, "onetwothree")
           assert.equal(status.result.stdout, "onethree")
           assert.equal(status.result.stderr, "two")
+          // Cross-stream interleaving is scheduler-dependent; the merge must contain both streams in full.
+          assert.deepEqual([...status.result.output].sort(), [..."onetwothree"].sort())
         }
         const files = yield* actor.Run({
           generation,

@@ -10,7 +10,6 @@ import { createEmbeddedRoutes } from "@opencode-ai/server/routes"
 import { Context, Effect, Layer, Scope } from "effect"
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http"
 import { WorkspaceProvider } from "@opencode-ai/core/workspace-provider"
-import { makeWorkspaceClient } from "./workspace-client"
 
 export interface CreateOptions {
   readonly workspaces?: WorkspaceProvider.Interface
@@ -35,10 +34,7 @@ export const create = Effect.fn("OpenCode.create")(function* (options: CreateOpt
     : undefined
   const locations = workspaceContext ? Context.get(workspaceContext, LocationServiceMap.Service) : undefined
   const admission = workspaceContext ? Context.get(workspaceContext, WorkspaceAdmission.Service) : undefined
-  const workspaces =
-    options.workspaces && locations && admission
-      ? yield* makeWorkspaceClient(options.workspaces, admission, locations)
-      : undefined
+  const workspaces = options.workspaces
   const web = yield* Effect.acquireRelease(
     Effect.sync(() =>
       HttpRouter.toWebHandler(

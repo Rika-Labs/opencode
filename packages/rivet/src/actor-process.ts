@@ -14,7 +14,12 @@ interface Actor {
     | { readonly status: "cancelled" },
     unknown
   >
-  readonly CancelCommand: (payload: { readonly id: string; readonly epoch: string }) => Effect.Effect<{ readonly status: "cancelled" }, unknown>
+  readonly CancelCommand: (payload: { readonly id: string; readonly epoch: string }) => Effect.Effect<
+    | { readonly status: "cancelled" }
+    | { readonly status: "completed"; readonly result: Result }
+    | { readonly status: "failed"; readonly message: string },
+    unknown
+  >
 }
 
 interface Command {
@@ -115,7 +120,12 @@ export function make(actor: Actor): AppProcess.Interface {
       ),
     )
     const observed = options?.signal
-      ? execute.pipe(Effect.raceFirst(waitForAbort(options.signal).pipe(Effect.catchIf(() => true, cancelThenFail))))
+      ? execute.pipe(
+          // The caller's abort reason must win the race against the command's own cancellation
+          // failure; the affirmative cancel is awaited before the error propagates.
+          Effect.raceFirst(waitForAbort(options.signal)),
+          Effect.catchIf(() => true, cancelThenFail),
+        )
       : execute
     const result = yield* observed.pipe(
       Effect.onInterrupt(() => cancel),

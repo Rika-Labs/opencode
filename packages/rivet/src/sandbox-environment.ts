@@ -1,6 +1,9 @@
-import { Workload } from "./e2b.ts"
-import { AgentOS, Error, type FilesystemOperation } from "./agentos.ts"
+export * as SandboxEnvironment from "./sandbox-environment.ts"
+
+import { ActorFilesystem, type FilesystemOperation } from "./actor-filesystem.ts"
+import type { Workload } from "./workload.ts"
 import { Effect, Schema } from "effect"
+import { posix } from "node:path"
 
 const VoidResult = Schema.Struct({ type: Schema.Literal("void") })
 const ReadResult = Schema.Struct({ type: Schema.Literal("read"), data: Schema.String })
@@ -25,10 +28,18 @@ const StatResult = Schema.Struct({
 })
 const FailureResult = Schema.Struct({ ok: Schema.Literal(false), code: Schema.String, message: Schema.String })
 const SuccessResult = Schema.Struct({ ok: Schema.Literal(true), result: Schema.Unknown })
-type AgentEnvironment = Effect.Success<ReturnType<typeof AgentOS.open>>
-type FilesystemResult = Effect.Success<ReturnType<AgentEnvironment["filesystem"]>>
 
-export function open(workload: Workload) {
+type FilesystemResult =
+  | { readonly type: "void" }
+  | { readonly type: "read"; readonly data: Uint8Array }
+  | { readonly type: "exists"; readonly value: boolean }
+  | { readonly type: "path"; readonly path: string }
+  | { readonly type: "names"; readonly names: string[] }
+  | { readonly type: "directoryEntries"; readonly entries: ReadonlyArray<{ readonly name: string; readonly isDirectory: boolean; readonly isSymbolicLink: boolean }> }
+  | { readonly type: "recursiveEntries"; readonly entries: ReadonlyArray<{ readonly path: string; readonly type: "directory" | "file" | "symlink"; readonly size: number }> }
+  | { readonly type: "stat"; readonly stat: Schema.Schema.Type<typeof StatResult>["stat"] }
+
+export function open(workload: Workload.Interface) {
   let pending = Promise.resolve()
   let closed = false
   const serialized = <A>(task: () => Promise<A>) => {
@@ -36,33 +47,72 @@ export function open(workload: Workload) {
     pending = result.then(() => undefined, () => undefined)
     return result
   }
-  const failure = (operation: string, cause: unknown, filesystemCode?: string) => new Error({ operation, cause, filesystemCode })
-  const run = (input: { command: string; args?: readonly string[]; cwd?: string; timeoutMs: number; maxOutputBytes: number }) => serialized(async () => {
+  const failure = (operation: string, cause: unknown, filesystemCode?: string) => new ActorFilesystem.Error({ operation, cause, filesystemCode })
+  // The actor speaks guest-absolute /workspace paths. Sandbox workloads mount the workspace there,
+  // but a local workload executes on the host under its root directory.
+  const toHost = (path: string) => {
+    if (workload.root === undefined) return path
+    if (path === "/workspace") return workload.root
+    if (path.startsWith("/workspace/")) return `${workload.root}/${path.slice("/workspace/".length)}`
+    return path
+  }
+  const fromHost = (path: string) => {
+    if (workload.root === undefined) return path
+    if (path === workload.root) return "/workspace"
+    if (path.startsWith(`${workload.root}/`)) return `/workspace/${path.slice(workload.root.length + 1)}`
+    return path
+  }
+  const locate = (input: FilesystemOperation): FilesystemOperation => {
+    if (workload.root === undefined) return input
+    if (input.type === "move") return { ...input, from: toHost(input.from), to: toHost(input.to) }
+    return { ...input, path: toHost(input.path) }
+  }
+  const run = (input: { command: string; args?: readonly string[]; cwd?: string; timeoutMs: number; maxOutputBytes: number }, signal?: AbortSignal) => serialized(async () => {
     if (closed) throw failure("run", "Environment is stopped")
-    const result = await workload.run(input.command, { args: input.args, cwd: input.cwd, timeoutMs: input.timeoutMs })
+    // A relative cwd is workspace-relative, matching how the filesystem layer resolves paths.
+    const cwd = input.cwd === undefined ? undefined : toHost(input.cwd.startsWith("/") ? input.cwd : posix.resolve("/workspace", input.cwd))
+    const result = await workload.run(input.command, { args: input.args, cwd, timeoutMs: input.timeoutMs, signal })
     const stdout = Buffer.from(result.stdout).subarray(0, input.maxOutputBytes)
     const stderr = Buffer.from(result.stderr).subarray(0, Math.max(0, input.maxOutputBytes - stdout.length))
-    return { exitCode: result.exitCode, outcome: "exited" as const, stdout, stderr, output: Buffer.concat([stdout, stderr]), truncated: Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr) > input.maxOutputBytes }
+    return {
+      exitCode: result.exitCode,
+      outcome: "exited" as const,
+      stdout,
+      stderr,
+      output: Buffer.from(result.output).subarray(0, input.maxOutputBytes),
+      truncated: Buffer.byteLength(result.output) > input.maxOutputBytes,
+    }
   })
   const filesystem = (input: FilesystemOperation): Promise<FilesystemResult> => serialized(async () => {
     if (closed) throw failure(input.type, "Environment is stopped")
-    const encoded = Buffer.from(JSON.stringify(input.type === "write" ? { ...input, data: Buffer.from(input.data).toString("base64") } : input)).toString("base64")
-    const process = await workload.run("python3", { args: ["-I", "-S", "-c", filesystemHelper, encoded], timeoutMs: 30_000 })
-    if (process.exitCode !== 0) throw failure(input.type, process.stderr || "filesystem helper failed")
-    const envelope = await Schema.decodeUnknownPromise(Schema.Union([FailureResult, SuccessResult]))(JSON.parse(process.stdout))
+    const located = locate(input)
+    const encoded = Buffer.from(JSON.stringify(located.type === "write" ? { ...located, data: Buffer.from(located.data).toString("base64") } : located)).toString("base64")
+    const execution = await workload.run("python3", { args: ["-I", "-S", "-c", filesystemHelper, encoded], timeoutMs: 30_000 })
+    if (execution.exitCode !== 0) throw failure(input.type, execution.stderr || "filesystem helper failed")
+    const envelope = await Schema.decodeUnknownPromise(Schema.Union([FailureResult, SuccessResult]))(JSON.parse(Buffer.from(execution.stdout).toString("utf8")))
     if (!envelope.ok) throw failure(input.type, envelope.message, envelope.code)
     const schema = input.type === "read" ? ReadResult : input.type === "stat" ? StatResult : input.type === "exists" ? ExistsResult : input.type === "realpath" ? PathResult : input.type === "readdir" ? input.recursive ? RecursiveEntriesResult : input.entries ? DirectoryEntriesResult : NamesResult : VoidResult
     const value = await Schema.decodeUnknownPromise(schema)(envelope.result)
     if (value.type === "read") return { type: value.type, data: Buffer.from(value.data, "base64") }
     if (value.type === "names") return { type: value.type, names: [...value.names] }
     if (value.type === "directoryEntries") return { type: value.type, entries: value.entries.map((entry) => ({ ...entry })) }
-    if (value.type === "recursiveEntries") return { type: value.type, entries: value.entries.map((entry) => ({ ...entry })) }
+    if (value.type === "recursiveEntries") return { type: value.type, entries: value.entries.map((entry) => ({ ...entry, path: fromHost(entry.path) })) }
     if (value.type === "stat") return { type: value.type, stat: { ...value.stat } }
+    if (value.type === "path") return { type: value.type, path: fromHost(value.path) }
     return value
   })
   return {
-    run: (input: Parameters<typeof run>[0]) => Effect.tryPromise({ try: () => run(input), catch: (cause) => cause instanceof Error ? cause : failure("run", cause) }),
-    filesystem: (input: FilesystemOperation) => Effect.tryPromise({ try: () => filesystem(input), catch: (cause) => cause instanceof Error ? cause : failure(input.type, cause) }),
+    run: (input: Parameters<typeof run>[0]) => {
+      const controller = new AbortController()
+      return Effect.tryPromise({ try: () => run(input, controller.signal), catch: (cause) => cause instanceof ActorFilesystem.Error ? cause : failure("run", cause) }).pipe(
+        Effect.onInterrupt(() =>
+          Effect.promise(async () => {
+            controller.abort()
+          }),
+        ),
+      )
+    },
+    filesystem: (input: FilesystemOperation) => Effect.tryPromise({ try: () => filesystem(input), catch: (cause) => cause instanceof ActorFilesystem.Error ? cause : failure(input.type, cause) }),
     stop: Effect.tryPromise({ try: () => serialized(async () => { closed = true; await workload.stop() }), catch: (cause) => failure("stop", cause) }),
     workload,
   }

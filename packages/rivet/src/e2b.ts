@@ -1,4 +1,7 @@
+export * as E2B from "./e2b.ts"
+
 import type { CommandResult, SandboxConnectOpts, SandboxOpts } from "@e2b/code-interpreter"
+import type { Interface, JournalEntry, RunOptions } from "./workload.ts"
 import { validateArchive } from "./workspace-transfer.ts"
 
 export interface CreateOptions extends SandboxOpts {
@@ -8,19 +11,6 @@ export interface CreateOptions extends SandboxOpts {
 export interface ReconnectOptions extends SandboxConnectOpts {
   readonly sandboxId: string
   readonly boundaryToken: string
-}
-
-export interface RunOptions {
-  readonly args?: readonly string[]
-  readonly cwd?: string
-  readonly env?: Readonly<Record<string, string>>
-  readonly timeoutMs?: number
-}
-
-export interface JournalEntry {
-  readonly sandboxId: string
-  readonly boundaryToken: string
-  readonly state: "created" | "deleted"
 }
 
 const helper = String.raw`#!/usr/bin/python3
@@ -99,6 +89,20 @@ if sys.argv[1] == "import":
       os.chown(os.path.join(root,member.name),1000,1000,follow_symlinks=False)
       if member.issym(): os.utime(os.path.join(root,member.name),ns=(int(member.mtime)*1000000000,)*2,follow_symlinks=False)
   os.unlink(archive); os.rmdir(os.path.dirname(archive)); raise SystemExit(0)
+if sys.argv[1] == "cancel":
+  if value["sealed"]: raise SystemExit(0)
+  child=value.get("child")
+  if child:
+    pid=int(child)
+    try:
+      # /proc reports the cgroup path relative to the cgroup namespace root: /sys/fs/cgroup inside
+      # the sandbox, the host root elsewhere. Compare both forms before trusting the recorded pid.
+      line=open(f"/proc/{pid}/cgroup").read().strip()
+      rel=value["cgroup"]
+      if rel.startswith("/sys/fs/cgroup"): rel=rel[len("/sys/fs/cgroup"):]
+      if line in ("0::"+value["cgroup"],"0::"+rel): os.kill(pid,9)
+    except (ProcessLookupError,FileNotFoundError): pass
+  raise SystemExit(0)
 if value["sealed"]: raise SystemExit(72)
 request=decode()
 ready_r,ready_w=os.pipe()
@@ -127,11 +131,18 @@ if os.read(ready_r,1) != b"1":
   os.waitpid(pid,0)
   raise SystemExit(126)
 os.close(ready_r)
+value["child"]=pid
+lock.seek(0); json.dump(value,lock,separators=(",",":")); lock.truncate(); lock.flush(); os.fsync(lock.fileno())
 fcntl.flock(lock,fcntl.LOCK_UN)
 deadline=time.monotonic()+request["timeout"]
 while True:
   found,status=os.waitpid(pid,os.WNOHANG)
-  if found: raise SystemExit(os.waitstatus_to_exitcode(status))
+  if found:
+    fcntl.flock(lock,fcntl.LOCK_EX)
+    value,path=state()
+    value.pop("child",None)
+    lock.seek(0); json.dump(value,lock,separators=(",",":")); lock.truncate(); lock.flush(); os.fsync(lock.fileno())
+    raise SystemExit(os.waitstatus_to_exitcode(status))
   if time.monotonic() >= deadline:
     fcntl.flock(lock,fcntl.LOCK_EX)
     value,path=state()
@@ -146,7 +157,7 @@ while True:
 
 type E2BSandbox = Awaited<ReturnType<typeof import("@e2b/code-interpreter")["Sandbox"]["create"]>>
 
-export class Workload {
+export class Workload implements Interface {
   readonly sandboxId: string
   readonly boundaryToken: string
   private stopped = false
@@ -197,30 +208,39 @@ export class Workload {
         timeout: (options.timeoutMs ?? 60_000) / 1000,
       }),
     ).toString("base64")
-    const result = await this.root(`run ${this.boundaryToken} ${request}`, (options.timeoutMs ?? 60_000) + 10_000).catch(async (error) => {
+    const cancel = options.signal
+      ? () => {
+          void this.rootHelper(`cancel ${this.boundaryToken}`, 10_000).catch(() => undefined)
+        }
+      : undefined
+    options.signal?.addEventListener("abort", cancel!, { once: true })
+    const result = await this.rootHelper(`run ${this.boundaryToken} ${request}`, (options.timeoutMs ?? 60_000) + 10_000, options.signal).catch(async (error) => {
+      if (options.signal?.aborted) throw error
       const cleanup = await this.stop().catch((stopError) => stopError)
       if (cleanup instanceof Error) throw new AggregateError([error, cleanup], "workload command response lost and stop reconciliation failed", { cause: error })
       throw error
+    }).finally(() => {
+      options.signal?.removeEventListener("abort", cancel!)
     })
     if (result.exitCode === 72) throw new Error("workload boundary is stopped")
-    return result
+    return { exitCode: result.exitCode, stdout: Buffer.from(result.stdout, "utf8"), stderr: Buffer.from(result.stderr, "utf8"), output: result.output }
   }
 
   async stop() {
-    const result = await this.root(`stop ${this.boundaryToken}`, 15_000)
+    const result = await this.rootHelper(`stop ${this.boundaryToken}`, 15_000)
     if (result.exitCode !== 0) throw new Error(`failed to stop workload boundary: ${result.stderr}`)
     this.stopped = true
   }
 
   async exportWorkspace() {
     if (!this.stopped) throw new Error("workload must be stopped before export")
-    const result = await this.root(`export ${this.boundaryToken}`, 70_000)
+    const result = await this.rootHelper(`export ${this.boundaryToken}`, 70_000)
     if (result.exitCode !== 0) throw new Error(`workspace export failed: ${result.stderr}`)
     const path = result.stdout.trim()
     try {
       return await this.sandbox.files.read(path, { format: "bytes", user: "user" })
     } finally {
-      await this.root(`remove ${this.boundaryToken} ${path}`, 10_000)
+      await this.rootHelper(`remove ${this.boundaryToken} ${path}`, 10_000)
     }
   }
 
@@ -233,7 +253,7 @@ export class Workload {
     if (installed.exitCode !== 0) throw new Error(`workspace import staging failed: ${installed.stderr}`)
     try {
       await this.sandbox.files.write(archive, data.slice().buffer, { user: "user" })
-      const result = await this.root(`import ${this.boundaryToken} ${archive}`, 70_000)
+      const result = await this.rootHelper(`import ${this.boundaryToken} ${archive}`, 70_000)
       if (result.exitCode !== 0) throw new Error(`workspace import failed: ${result.stderr}`)
     } catch (cause) {
       await this.command(`rm -rf -- ${directory}`, 10_000).catch(() => undefined)
@@ -242,6 +262,8 @@ export class Workload {
   }
 
   async pause() {
+    // A stopped workload is sealed; there is nothing left to pause and the boundary rejects further work.
+    if (this.stopped) return { sandboxId: this.sandboxId, boundaryToken: this.boundaryToken }
     await this.verify()
     await this.sandbox.pause()
     return { sandboxId: this.sandboxId, boundaryToken: this.boundaryToken }
@@ -261,22 +283,44 @@ export class Workload {
   }
 
   private async verify() {
-    const valid = await this.root(`check ${this.boundaryToken}`, 10_000)
+    const valid = await this.rootHelper(`check ${this.boundaryToken}`, 10_000)
       .then((result) => result.exitCode === 0)
       .catch(() => false)
     if (!valid) throw new Error("workload boundary identity is missing or stale")
   }
 
-  private async root(args: string, timeoutMs: number): Promise<CommandResult> {
-    return this.command(`/usr/bin/env -i HOME=/root PATH=/usr/bin:/bin LANG=C /usr/bin/python3 -I -S /usr/local/lib/opencode-boundary/helper ${args}`, timeoutMs)
+  private async rootHelper(args: string, timeoutMs: number, signal?: AbortSignal): Promise<CommandResult & { output: Buffer }> {
+    return this.command(`/usr/bin/env -i HOME=/root PATH=/usr/bin:/bin LANG=C /usr/bin/python3 -I -S /usr/local/lib/opencode-boundary/helper ${args}`, timeoutMs, signal)
   }
 
-  private async command(command: string, timeoutMs: number): Promise<CommandResult> {
+  private async command(command: string, timeoutMs: number, signal?: AbortSignal): Promise<CommandResult & { output: Buffer }> {
     const { CommandExitError } = await import("@e2b/code-interpreter")
-    return this.sandbox.commands.run(command, { user: "root", cwd: "/", envs: { HOME: "/root", PATH: "/usr/bin:/bin", LANG: "C" }, timeoutMs }).catch((error) => {
-      if (error instanceof CommandExitError) return error
-      throw error
-    })
+    // The callbacks fire off the same ordered envd stream, giving the merged output its arrival order.
+    const merged: Buffer[] = []
+    const result = await this.sandbox.commands
+      .run(command, {
+        user: "root",
+        cwd: "/",
+        envs: { HOME: "/root", PATH: "/usr/bin:/bin", LANG: "C" },
+        timeoutMs,
+        signal,
+        onStdout: (data) => {
+          merged.push(Buffer.from(data, "utf8"))
+        },
+        onStderr: (data) => {
+          merged.push(Buffer.from(data, "utf8"))
+        },
+      })
+      .catch((error) => {
+        if (error instanceof CommandExitError) return error
+        throw error
+      })
+    return {
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      output: Buffer.concat(merged),
+    }
   }
 
   private static validateIdentity(sandboxId: string, boundaryToken: string) {

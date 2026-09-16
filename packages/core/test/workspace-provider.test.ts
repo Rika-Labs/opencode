@@ -113,7 +113,5 @@ function providerWithRoot(
       }),
     create: () => unsupported("create"),
     environment: () => unsupported("environment"),
-    promote: () => unsupported("promote"),
-    promotion: () => unsupported("promotion"),
   }
 }

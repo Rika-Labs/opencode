@@ -44,7 +44,7 @@ print(json.dumps(results,separators=(",",":")))
 test("E2B envd rejects direct guest requests without its access token", { timeout: 300_000, skip: enabled ? false : "set E2B_LIVE=1" }, async () => {
   let workload: Workload | undefined
   let journalID: string | undefined
-  const record = async (entry: { sandboxId: string; boundaryToken: string; state: "created" | "deleted" }) => {
+  const record = async (entry: { sandboxId: string; boundaryToken?: string; state: "created" | "deleted" }) => {
     if (entry.state === "created") journalID = entry.sandboxId
     await appendFile(journal, `${JSON.stringify({ ...entry, at: new Date().toISOString() })}\n`, { mode: 0o600 })
   }
@@ -61,8 +61,8 @@ test("E2B envd rejects direct guest requests without its access token", { timeou
     assert.ok((await sandbox.files.read("/etc/hostname", { user: "user" })).length > 0)
 
     const result = await workload.run("/usr/bin/python3", { args: ["-c", probe], timeoutMs: 60_000 })
-    assert.equal(result.exitCode, 0, result.stderr)
-    const statuses: Array<{ probe: string; user: string; token: string; status?: number; auth?: boolean; bytes?: number; transport?: string }> = JSON.parse(result.stdout)
+    assert.equal(result.exitCode, 0, result.stderr.toString())
+    const statuses: Array<{ probe: string; user: string; token: string; status?: number; auth?: boolean; bytes?: number; transport?: string }> = JSON.parse(result.stdout.toString())
     assert.equal(statuses.length, 8)
     for (const status of statuses) {
       assert.equal(status.transport, undefined, JSON.stringify(status))
