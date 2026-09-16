@@ -15,7 +15,9 @@ import { CrossSpawnSpawner } from "@opencode/util/cross-spawn-spawner"
 import type { LayerNode } from "@opencode/util/effect/layer-node"
 import { Effect, Layer } from "effect"
 import type { Config, Scope } from "effect"
-import type { SqliteDatabase } from "rivetkit/db"
+import { db } from "rivetkit/db"
+import type { DatabaseProvider, RawAccess, SqliteDatabase } from "rivetkit/db"
+import type { PromiseSdk } from "../../sdk/src/promise"
 import { RivetSqlite } from "./sqlite"
 
 /**
@@ -40,7 +42,7 @@ export interface CreateOptions<R = never> extends Options {
   readonly instances?: OpenCode.CreateOptions<R>["instances"]
 }
 
-export function serverOptions(options: Options): OpenCode.CreateOptions {
+export function serverOptions(options: Options) {
   return {
     app: options.app,
     fs: { filewatcher: false, fff: false },
@@ -88,6 +90,43 @@ export const layer = <R = never>(
 
 export type Interface = OpenCode.Interface
 export type Requirements = Scope.Scope
+
+export interface ActorClient extends RawAccess {
+  readonly storage: SqliteDatabase
+  readonly opencode: PromiseSdk.Interface
+}
+
+/**
+ * Native actor database provider, rebuilt by Rivet on each wake. Qualified on
+ * NAPI sqlite: "local" with Core's `workerd` condition (pragma guards/stubs).
+ * Default Bun Core enables WAL and Rivet 2.3.17 fails reopening after sleep
+ * with SQLite code 14. This does not qualify the Cloudflare runtime.
+ * The relative Promise SDK import is a repository seam; it needs a package
+ * export before this provider can be published.
+ */
+export function database(options: Omit<Options, "storage"> = {}): DatabaseProvider<ActorClient> {
+  const raw = db()
+  return {
+    async createClient(context) {
+      if (!context.nativeDatabaseProvider)
+        throw new Error("OpenCodeRivet requires the actor runtime's nativeDatabaseProvider")
+      const storage = await context.nativeDatabaseProvider.open(context.actorId)
+      const client = await raw.createClient(context)
+      const { PromiseSdk } = await import("../../sdk/src/promise")
+      const profile = make({ ...options, storage })
+      const opencode = await PromiseSdk.create(profile.options, { overrides: profile.replacements })
+      return {
+        ...client,
+        storage,
+        opencode,
+        // Rivet owns native SQLite closure; disposing the SDK only releases its
+        // fibers/layers. Closing RawAccess here would close the shared handle.
+        close: () => opencode.close(),
+      }
+    },
+    onMigrate() {},
+  }
+}
 
 const unavailable = (what: string) => Effect.die(new Error(`${what} is unavailable in the Rivet profile`))
 

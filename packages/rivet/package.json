@@ -22,6 +22,7 @@
     "rivetkit": "2.3.17"
   },
   "devDependencies": {
+    "@rivetkit/engine-cli": "2.3.17",
     "@tsconfig/bun": "catalog:",
     "@types/bun": "catalog:",
     "@typescript/native-preview": "catalog:"
