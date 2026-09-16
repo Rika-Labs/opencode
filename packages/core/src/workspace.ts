@@ -7,6 +7,8 @@ import { Clock, Context, Deferred, Duration, Effect, Exit, FiberSet, Layer, Ref,
 import { systemError } from "effect/PlatformError"
 import { make } from "effect/unstable/process/ChildProcessSpawner"
 import type { EnvironmentDriver } from "./environment/driver.js"
+import { execDefaults } from "./environment/exec-defaults.js"
+import { Failed, type Files } from "./environment/files.js"
 import { Database } from "./database/database.js"
 import { KeyedMutex } from "./effect/keyed-mutex.js"
 import { WorkspaceDriver } from "./workspace/driver.js"
@@ -252,41 +254,71 @@ const layer = (options: Options) =>
         }),
         provision,
         connect: Effect.fn("Workspace.connect")(function* (workspaceID) {
-          const spawner = make((command) =>
-            Effect.acquireRelease(
-              // A live connection implies the binding is already persisted, so skip the provision hop.
-              Effect.suspend(() => (connections.has(workspaceID) ? Effect.void : provision(workspaceID))).pipe(
-                Effect.andThen(
-                  locks.withLock(workspaceID)(
-                    Effect.gen(function* () {
-                      const connection = yield* open(workspaceID)
-                      yield* Ref.set(connection.lastActivity, yield* Clock.currentTimeMillis)
-                      yield* Ref.update(connection.active, (active) => active + 1)
-                      return connection
-                    }),
-                  ),
-                ),
-                Effect.mapError((cause) =>
-                  systemError({
-                    _tag: "Unknown",
-                    module: "Workspace",
-                    method: "spawn",
-                    description: `Failed to wake workspace ${workspaceID}`,
-                    cause,
+          const wake = Effect.acquireRelease(
+            // A live connection implies the binding is already persisted, so skip the provision hop.
+            Effect.suspend(() => (connections.has(workspaceID) ? Effect.void : provision(workspaceID))).pipe(
+              Effect.andThen(
+                locks.withLock(workspaceID)(
+                  Effect.gen(function* () {
+                    const connection = yield* open(workspaceID)
+                    yield* Ref.set(connection.lastActivity, yield* Clock.currentTimeMillis)
+                    yield* Ref.update(connection.active, (active) => active + 1)
+                    return connection
                   }),
                 ),
               ),
-              (connection) =>
-                locks.withLock(workspaceID)(
-                  Effect.gen(function* () {
-                    yield* Ref.update(connection.active, (active) => active - 1)
-                    yield* Ref.set(connection.lastActivity, yield* Clock.currentTimeMillis)
+            ),
+            (connection) =>
+              locks.withLock(workspaceID)(
+                Effect.gen(function* () {
+                  yield* Ref.update(connection.active, (active) => active - 1)
+                  yield* Ref.set(connection.lastActivity, yield* Clock.currentTimeMillis)
+                }),
+              ),
+          )
+          const spawner = make((command) =>
+            wake.pipe(
+              Effect.mapError((cause) =>
+                systemError({
+                  _tag: "Unknown",
+                  module: "Workspace",
+                  method: "spawn",
+                  description: `Failed to wake workspace ${workspaceID}`,
+                  cause,
+                }),
+              ),
+              Effect.flatMap((connection) => connection.environment.spawner.spawn(command)),
+            ),
+          )
+          // Each file call wakes the workspace like a spawn does, then prefers the
+          // driver's native filesystem over the process-backed default.
+          const onFiles = <A, E>(
+            path: string,
+            use: (files: Files) => Effect.Effect<A, E>,
+          ): Effect.Effect<A, E | Failed> =>
+            Effect.scoped(
+              wake.pipe(
+                Effect.mapError((cause) => new Failed({ path, cause })),
+                Effect.flatMap((connection) =>
+                  use({
+                    ...execDefaults(connection.environment.spawner),
+                    ...connection.environment.overrides,
                   }),
                 ),
-            ).pipe(Effect.flatMap((connection) => connection.environment.spawner.spawn(command))),
-          )
-          // Overrides are connection-bound; per-spawn routing is required before any driver ships them, so they are deliberately omitted.
-          return { spawner }
+              ),
+            )
+          return {
+            spawner,
+            overrides: {
+              stat: (path) => onFiles(path, (files) => files.stat(path)),
+              read: (path, range) => onFiles(path, (files) => files.read(path, range)),
+              list: (path) => onFiles(path, (files) => files.list(path)),
+              write: (path, bytes) => onFiles(path, (files) => files.write(path, bytes)),
+              mkdir: (path) => onFiles(path, (files) => files.mkdir(path)),
+              remove: (path) => onFiles(path, (files) => files.remove(path)),
+              move: (from, to) => onFiles(from, (files) => files.move(from, to)),
+            },
+          }
         }),
         destroy: Effect.fn("Workspace.destroy")(function* (workspaceID) {
           // Settling the shared attempt cancels its racing provision body and fails
