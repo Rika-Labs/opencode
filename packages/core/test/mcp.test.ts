@@ -67,14 +67,19 @@ function permissionLayer(assertions: PermissionV2.AssertInput[]) {
   )
 }
 
-function mcpLayer(directory: string, workspaceID?: WorkspaceID, assertions: PermissionV2.AssertInput[] = []) {
+function mcpLayer(
+  directory: string,
+  workspaceID?: WorkspaceID,
+  assertions: PermissionV2.AssertInput[] = [],
+  isolated?: boolean,
+) {
   return AppNodeBuilder.build(LayerNode.group([McpV2.node, ToolRegistry.node]), [
     [
       Location.node,
       Layer.succeed(
         Location.Service,
         Location.Service.of(
-          location({ directory: AbsolutePath.make(directory), workspaceID }),
+          location({ directory: AbsolutePath.make(directory), workspaceID }, { isolated }),
         ),
       ),
     ],
@@ -242,6 +247,24 @@ describe("McpV2", () => {
             test: { status: "failed", error: "Local MCP servers from workspace configuration are not supported" },
           })
         }).pipe(Effect.provide(mcpLayer(tmp.path))),
+      ),
+    ),
+  )
+
+  it.live("allows local servers in isolated managed workspaces", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const mcp = yield* McpV2.Service
+          yield* mcp.transform((draft) => {
+            draft.server("test", serverConfig(), "workspace")
+          })
+          expect(yield* mcp.status()).toEqual({ test: { status: "connected" } })
+          expect((yield* mcp.tools()).map((tool) => tool.name).includes("echo")).toBe(true)
+        }).pipe(Effect.provide(mcpLayer(tmp.path, WorkspaceID.create(), [], true))),
       ),
     ),
   )

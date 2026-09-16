@@ -1,12 +1,10 @@
 import assert from "node:assert/strict"
 import { appendFile } from "node:fs/promises"
 import { test } from "node:test"
-import { NotFoundError, Sandbox } from "@e2b/code-interpreter"
 import { Workload } from "../src/e2b.ts"
 
 const enabled = process.env.E2B_LIVE === "1"
 const journal = process.env.E2B_RESOURCE_JOURNAL ?? "/tmp/opencode-e2b-workloads.jsonl"
-const sdkVersion = "2.49.1"
 
 const probe = String.raw`import base64,json,struct,sys,urllib.error,urllib.parse,urllib.request
 base="http://127.0.0.1:49983"
@@ -51,15 +49,8 @@ test("E2B envd rejects direct guest requests without its access token", { timeou
   try {
     workload = await Workload.create({ timeoutMs: 180_000, metadata: { purpose: "disposable-envd-auth-probe" }, journal: record })
     assert.equal(journalID, workload.sandboxId)
-    const sandbox = await Sandbox.connect(workload.sandboxId, { timeoutMs: 30_000 })
-    const info = await Sandbox.getInfo(workload.sandboxId)
-    const validRoot = await sandbox.commands.run("printf host-sdk-root", { user: "root" })
-    const validUser = await sandbox.commands.run("printf host-sdk-user", { user: "user" })
-    assert.equal(validRoot.stdout, "host-sdk-root")
-    assert.equal(validUser.stdout, "host-sdk-user")
-    assert.ok((await sandbox.files.read("/etc/hostname", { user: "root" })).length > 0)
-    assert.ok((await sandbox.files.read("/etc/hostname", { user: "user" })).length > 0)
-
+    const host = await workload.guestFiles.readFile("/etc/hostname")
+    assert.ok(host.byteLength > 0)
     const result = await workload.run("/usr/bin/python3", { args: ["-c", probe], timeoutMs: 60_000 })
     assert.equal(result.exitCode, 0, result.stderr.toString())
     const statuses: Array<{ probe: string; user: string; token: string; status?: number; auth?: boolean; bytes?: number; transport?: string }> = JSON.parse(result.stdout.toString())
@@ -70,13 +61,12 @@ test("E2B envd rejects direct guest requests without its access token", { timeou
       assert.ok(status.status === 401 || status.status === 403 || status.status === 200, JSON.stringify(status))
       assert.ok((status.bytes ?? 513) <= 512, JSON.stringify(status))
     }
-    assert.equal(await sandbox.files.exists("/tmp/opencode-envd-auth-bypass"), false)
-    process.stdout.write(`E2B SDK ${sdkVersion}; envd ${info.envdVersion}; ${JSON.stringify(statuses)}\n`)
+    assert.equal(await workload.guestFiles.exists("/tmp/opencode-envd-auth-bypass"), false)
   } finally {
     if (workload) {
       const id = workload.sandboxId
       await workload.delete(record)
-      await assert.rejects(Sandbox.connect(id, { timeoutMs: 30_000 }), NotFoundError)
+      await assert.rejects(Workload.reconnect({ sandboxId: id, timeoutMs: 30_000 }))
     }
   }
 })

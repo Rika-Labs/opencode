@@ -115,7 +115,7 @@ export function buildLocationServiceMap(
                           WorkspaceSearch.node,
                           Layer.succeed(WorkspaceSearch.Service, bound.search ?? WorkspaceSearch.unsupported),
                         ],
-                        [Location.node, Location.managedNode(ref, { project: bound.project, vcs: bound.vcs })],
+                        [Location.node, Location.managedNode(ref, { project: bound.project, vcs: bound.vcs, isolated: bound.isolated })],
                         [FileSystemSearch.node, FileSystemSearch.managedLayer],
                         [Watcher.node, Watcher.noopLayer],
                         [Snapshot.node, Snapshot.unsupportedLayer],

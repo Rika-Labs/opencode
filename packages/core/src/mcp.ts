@@ -127,6 +127,7 @@ const layer = Layer.effect(
 
     function refusal(record: ServerRecord): { status: "disabled" } | { status: "failed"; error: string } | undefined {
       if (record.config.disabled) return { status: "disabled" }
+      if (location.isolated === true) return undefined
       const managedWorkspace = location.workspaceID !== undefined
       const workspace = record.authority === "workspace"
       if (record.config.type === "local")

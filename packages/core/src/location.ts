@@ -10,6 +10,7 @@ export { Info, Ref, response }
 
 export interface Interface extends Info {
   readonly vcs?: Project.Vcs
+  readonly isolated?: boolean
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Location") {}
@@ -38,7 +39,10 @@ export const boundNode = (ref: Ref) =>
     deps: [Project.node],
   })
 
-export const managedNode = (ref: Ref, binding: { readonly project: Interface["project"]; readonly vcs?: Interface["vcs"] }) =>
+export const managedNode = (
+  ref: Ref,
+  binding: { readonly project: Interface["project"]; readonly vcs?: Interface["vcs"]; readonly isolated?: boolean },
+) =>
   makeLocationNode({
     service: Service,
     layer: Layer.succeed(Service, Service.of({ directory: ref.directory, workspaceID: ref.workspaceID, ...binding })),

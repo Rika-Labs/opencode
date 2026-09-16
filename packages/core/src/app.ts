@@ -95,12 +95,8 @@ const layer = Layer.effect(
 
     let loaded: Loaded[] = []
 
-    const decodeManifest = Schema.decodeUnknownOption(
-      Schema.UnknownFromJsonString.pipe(Schema.decodeTo(App.Manifest)),
-    )
-    const decodeID = Schema.decodeUnknownOption(
-      Schema.UnknownFromJsonString.pipe(Schema.decodeTo(Schema.Struct({ id: App.ID }))),
-    )
+    const decodeManifest = Schema.decodeUnknownOption(Schema.fromJsonString(App.Manifest))
+    const decodeID = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ id: App.ID })))
 
     function toServerConfig(directory: AbsolutePath, server: App.McpServer): ConfigMCP.ServerConfig {
       if (server.type === "remote")

@@ -1,0 +1,24 @@
+diff --git a/dist/Schema.d.ts b/dist/Schema.d.ts
+index 1111111111111111111111111111111111111111..2222222222222222222222222222222222222222 100644
+--- a/dist/Schema.d.ts
++++ b/dist/Schema.d.ts
+@@ -9964,6 +9964,7 @@ export declare const TaggedError: {
+         } & S["fields"]>>, Cause_.YieldableError & Brand>;
+     };
+ };
++export declare const TaggedErrorClass: typeof TaggedError;
+ /**
+  * Represents a function that builds a fast-check `Arbitrary<T>` from the
+  * `fast-check` module.
+diff --git a/dist/Schema.js b/dist/Schema.js
+index 3333333333333333333333333333333333333333..4444444444444444444444444444444444444444 100644
+--- a/dist/Schema.js
++++ b/dist/Schema.js
+@@ -9424,6 +9424,7 @@ export const TaggedError = identifier => {
+     return Error(identifier ?? tagValue)(struct, annotations);
+   };
+ };
++export const TaggedErrorClass = TaggedError;
+ /**
+  * Returns an {@link Arbitrary} factory derived from a schema. The generated
+  * values satisfy the schema and use its decoded `Type`.

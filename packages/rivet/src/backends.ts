@@ -37,12 +37,11 @@ const modules: Record<Backend, Module> = {
   e2b: {
     create: () => E2B.Workload.create(),
     reconnect: (identity) => {
-      if (!identity.sandboxId || !identity.boundaryToken)
-        return Promise.reject(new globalThis.Error("E2B identity is missing"))
-      return E2B.Workload.reconnect({ sandboxId: identity.sandboxId, boundaryToken: identity.boundaryToken })
+      if (!identity.sandboxId) return Promise.reject(new globalThis.Error("E2B identity is missing"))
+      return E2B.Workload.reconnect({ sandboxId: identity.sandboxId })
     },
     validate: (identity) => {
-      if (!identity.sandboxId || !identity.boundaryToken) return "E2B identity is missing"
+      if (!identity.sandboxId) return "E2B identity is missing"
       return undefined
     },
   },

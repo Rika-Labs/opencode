@@ -44,6 +44,7 @@ export namespace WorkspaceProvider {
     readonly filesystem: FSUtil.Interface
     readonly process: AppProcess.Interface
     readonly search?: Search
+    readonly isolated?: boolean
   }
 
   export interface Search {

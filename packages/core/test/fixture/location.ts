@@ -4,12 +4,16 @@ import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Effect, Layer } from "effect"
 import { tmpdir } from "./tmpdir"
 
-export function location(ref: Location.Ref, input: { projectDirectory?: AbsolutePath; vcs?: Project.Vcs } = {}) {
+export function location(
+  ref: Location.Ref,
+  input: { projectDirectory?: AbsolutePath; vcs?: Project.Vcs; isolated?: boolean } = {},
+) {
   return {
     directory: ref.directory,
     workspaceID: ref.workspaceID,
     project: { id: Project.ID.global, directory: input.projectDirectory ?? ref.directory },
     vcs: input.vcs,
+    isolated: input.isolated,
   } satisfies Location.Interface
 }
 

@@ -73,7 +73,7 @@ export async function tracingLayer() {
         headers,
       }),
     ),
-  }))
+  })) as Layer.Layer<never>
 }
 
 export * as Otlp from "./otlp"

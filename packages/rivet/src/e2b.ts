@@ -1,347 +1,437 @@
 export * as E2B from "./e2b.ts"
 
-import type { CommandResult, SandboxConnectOpts, SandboxOpts } from "@e2b/code-interpreter"
-import type { Interface, JournalEntry, RunOptions } from "./workload.ts"
+import { Context, Effect, Exit, Layer, Predicate, Scope, Stream } from "effect"
+import * as AdapterKit from "effect-sandbox/AdapterKit"
+import * as E2BClient from "effect-sandbox/e2b/E2BClient"
+import * as LifecyclePolicy from "effect-sandbox/LifecyclePolicy"
+import * as Sandbox from "effect-sandbox/Sandbox"
+import * as SandboxCommand from "effect-sandbox/SandboxCommand"
+import type { Lease } from "effect-sandbox/SandboxLease"
+import * as Provider from "effect-sandbox/SandboxProvider"
+import type { SandboxReference } from "effect-sandbox/SandboxReference"
+import { posix } from "node:path"
+import { ActorFilesystem, type Filesystem } from "./actor-filesystem.ts"
 import { validateArchive } from "./workspace-transfer.ts"
+import type { Interface, JournalEntry, RunOptions, RunResult } from "./workload.ts"
 
-export interface CreateOptions extends SandboxOpts {
+export interface CreateOptions {
   readonly journal?: (entry: JournalEntry) => Promise<void>
+  readonly timeoutMs?: number
+  readonly metadata?: Readonly<Record<string, string>>
+  readonly template?: string
+  readonly secure?: boolean
+  readonly envs?: Readonly<Record<string, string>>
 }
 
-export interface ReconnectOptions extends SandboxConnectOpts {
+export interface ReconnectOptions {
   readonly sandboxId: string
-  readonly boundaryToken: string
+  readonly boundaryToken?: string
+  readonly timeoutMs?: number
 }
 
-const helper = String.raw`#!/usr/bin/python3
-import base64,ctypes,fcntl,json,os,sys,tarfile,tempfile,time
-state_path="/run/opencode-workload.json"
-def state():
-  with open(state_path) as f: value=json.load(f)
-  path=value["cgroup"]
-  if value["token"] != sys.argv[2] or not os.path.isdir(path) or os.stat(path).st_ino != value["inode"]: raise SystemExit(70)
-  return value,path
-def decode(): return json.loads(base64.b64decode(sys.argv[3]))
-lock=open(state_path,"r+")
-fcntl.flock(lock,fcntl.LOCK_EX)
-value,path=state()
-if sys.argv[1] == "inspect": raise SystemExit(0)
-if sys.argv[1] == "check": raise SystemExit(72 if value["sealed"] else 0)
-if sys.argv[1] == "stop":
-  if not value["sealed"]:
-    value["sealed"]=True
-    lock.seek(0); json.dump(value,lock,separators=(",",":")); lock.truncate(); lock.flush(); os.fsync(lock.fileno())
-  with open(path+"/cgroup.kill","w") as f: f.write("1")
-  for _ in range(500):
-    if "populated 0" in open(path+"/cgroup.events").read(): raise SystemExit(0)
-    time.sleep(.01)
-  raise SystemExit(71)
-if sys.argv[1] == "export":
-  if not value["sealed"]: raise SystemExit(73)
-  staging=tempfile.mkdtemp(prefix="export-",dir="/run/opencode-boundary")
-  archive=staging+"/workspace.tar"
-  os.chown(staging,1000,1000); os.chmod(staging,0o700)
-  pid=os.fork()
-  if pid == 0:
-    try:
-      libc=ctypes.CDLL(None,use_errno=True)
-      if libc.prctl(47,4,0,0,0) != 0: raise OSError(ctypes.get_errno(),"PR_CAP_AMBIENT_CLEAR_ALL")
-      os.setgroups([]); os.setgid(1000); os.setuid(1000)
-      header=(ctypes.c_uint32*2)(0x20080522,0)
-      data=(ctypes.c_uint32*6)(0,0,0,0,0,0)
-      if libc.capset(header,data) != 0: raise OSError(ctypes.get_errno(),"capset")
-      if libc.prctl(38,1,0,0,0) != 0: raise OSError(ctypes.get_errno(),"PR_SET_NO_NEW_PRIVS")
-      os.execve("/usr/bin/tar",["/usr/bin/tar","-C","/workspace","-cf",archive,"."],{"HOME":"/home/user","PATH":"/usr/bin:/bin","LANG":"C"})
-    except BaseException: os._exit(126)
-  _,status=os.waitpid(pid,0)
-  code=os.waitstatus_to_exitcode(status)
-  if code: raise SystemExit(code)
-  os.chown(archive,1000,1000); os.chmod(archive,0o600)
-  print(archive)
-  raise SystemExit(0)
-if sys.argv[1] == "remove":
-  target=sys.argv[3]
-  prefix="/run/opencode-boundary/export-"
-  parent=os.path.dirname(target)
-  if not parent.startswith(prefix) or os.path.basename(target)!="workspace.tar" or "/" in parent[len(prefix):]: raise SystemExit(70)
-  os.unlink(target); os.rmdir(os.path.dirname(target)); raise SystemExit(0)
-if sys.argv[1] == "import":
-  archive=sys.argv[3]
-  if not archive.startswith("/run/opencode-boundary/import-") or not archive.endswith("/workspace.tar"): raise SystemExit(70)
-  root=os.path.realpath("/workspace")
-  links=set()
-  with tarfile.open(archive,"r:") as source:
-    members=source.getmembers()
-    if not members or len(members)>1000000: raise SystemExit(74)
-    for member in members:
-      name=os.path.normpath(member.name)
-      if os.path.isabs(member.name) or name == ".." or name.startswith("../") or member.isdev() or member.isfifo(): raise SystemExit(74)
-      parts=name.split("/")
-      if any("/".join(parts[:i]) in links for i in range(1,len(parts))): raise SystemExit(74)
-      if member.issym() or member.islnk():
-        target=os.path.realpath(os.path.join(root,os.path.dirname(name),member.linkname)) if member.issym() else os.path.realpath(os.path.join(root,member.linkname))
-        if os.path.commonpath([root,target]) != root: raise SystemExit(74)
-        links.add(name)
-      if not (member.isfile() or member.isdir() or member.issym() or member.islnk()): raise SystemExit(74)
-    source.extractall(root,members=members,numeric_owner=False,filter="fully_trusted")
-    os.chown(root,1000,1000)
-    for member in members:
-      os.chown(os.path.join(root,member.name),1000,1000,follow_symlinks=False)
-      if member.issym(): os.utime(os.path.join(root,member.name),ns=(int(member.mtime)*1000000000,)*2,follow_symlinks=False)
-  os.unlink(archive); os.rmdir(os.path.dirname(archive)); raise SystemExit(0)
-if sys.argv[1] == "cancel":
-  if value["sealed"]: raise SystemExit(0)
-  child=value.get("child")
-  if child:
-    pid=int(child)
-    try:
-      # /proc reports the cgroup path relative to the cgroup namespace root: /sys/fs/cgroup inside
-      # the sandbox, the host root elsewhere. Compare both forms before trusting the recorded pid.
-      line=open(f"/proc/{pid}/cgroup").read().strip()
-      rel=value["cgroup"]
-      if rel.startswith("/sys/fs/cgroup"): rel=rel[len("/sys/fs/cgroup"):]
-      if line in ("0::"+value["cgroup"],"0::"+rel): os.kill(pid,9)
-    except (ProcessLookupError,FileNotFoundError): pass
-  raise SystemExit(0)
-if value["sealed"]: raise SystemExit(72)
-request=decode()
-ready_r,ready_w=os.pipe()
-pid=os.fork()
-if pid == 0:
-  os.close(ready_r)
-  try:
-    with open(path+"/cgroup.procs","w") as f: f.write(str(os.getpid()))
-    os.write(ready_w,b"1")
-    os.close(ready_w)
-    libc=ctypes.CDLL(None,use_errno=True)
-    if libc.prctl(47,4,0,0,0) != 0: raise OSError(ctypes.get_errno(),"PR_CAP_AMBIENT_CLEAR_ALL")
-    os.setgroups([])
-    os.setgid(1000)
-    os.setuid(1000)
-    header=(ctypes.c_uint32*2)(0x20080522,0)
-    data=(ctypes.c_uint32*6)(0,0,0,0,0,0)
-    if libc.capset(header,data) != 0: raise OSError(ctypes.get_errno(),"capset")
-    if libc.prctl(38,1,0,0,0) != 0: raise OSError(ctypes.get_errno(),"PR_SET_NO_NEW_PRIVS")
-    os.chdir(request["cwd"])
-    os.execvpe(request["file"],request["argv"],request["env"])
-  except BaseException:
-    os._exit(126)
-os.close(ready_w)
-if os.read(ready_r,1) != b"1":
-  os.waitpid(pid,0)
-  raise SystemExit(126)
-os.close(ready_r)
-value["child"]=pid
-lock.seek(0); json.dump(value,lock,separators=(",",":")); lock.truncate(); lock.flush(); os.fsync(lock.fileno())
-fcntl.flock(lock,fcntl.LOCK_UN)
-deadline=time.monotonic()+request["timeout"]
-while True:
-  found,status=os.waitpid(pid,os.WNOHANG)
-  if found:
-    fcntl.flock(lock,fcntl.LOCK_EX)
-    value,path=state()
-    value.pop("child",None)
-    lock.seek(0); json.dump(value,lock,separators=(",",":")); lock.truncate(); lock.flush(); os.fsync(lock.fileno())
-    raise SystemExit(os.waitstatus_to_exitcode(status))
-  if time.monotonic() >= deadline:
-    fcntl.flock(lock,fcntl.LOCK_EX)
-    value,path=state()
-    value["sealed"]=True
-    lock.seek(0); json.dump(value,lock,separators=(",",":")); lock.truncate(); lock.flush(); os.fsync(lock.fileno())
-    with open(path+"/cgroup.kill","w") as f: f.write("1")
-    os.waitpid(pid,0)
-    while "populated 1" in open(path+"/cgroup.events").read(): time.sleep(.01)
-    raise SystemExit(124)
-  time.sleep(.02)
-`
+const defaultEnvironment: Readonly<Record<string, string>> = {
+  HOME: "/home/user",
+  PATH: "/usr/local/bin:/usr/bin:/bin",
+}
 
-type E2BSandbox = Awaited<ReturnType<typeof import("@e2b/code-interpreter")["Sandbox"]["create"]>>
+const sandboxIdPattern = /^[A-Za-z0-9_-]{1,128}$/
+
+const asError = (cause: unknown): Error => (cause instanceof Error ? cause : new Error(String(cause)))
+
+const runPromise = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
+  Effect.runPromise(effect).catch((cause: unknown) => {
+    throw asError(cause)
+  })
+
+const filesystemCode = (cause: unknown): string | undefined => {
+  if (Predicate.isTagged(cause, "NotFoundError")) return "ENOENT"
+  if (cause instanceof Error && /\bEEXIST\b|already exists/i.test(cause.message)) return "EEXIST"
+  if (cause instanceof Error && /\bEACCES\b|\bEPERM\b|permission/i.test(cause.message)) return "EACCES"
+  return undefined
+}
+
+const failFiles = (operation: string, cause: unknown): never => {
+  throw new ActorFilesystem.Error({ operation, cause, filesystemCode: filesystemCode(cause) })
+}
+
+const toStat = (entry: {
+  readonly kind: string
+  readonly size: number | null
+  readonly mode?: number
+  readonly mtimeMs?: number
+  readonly owner?: string
+  readonly group?: string
+}) => ({
+  isSymbolicLink: entry.kind === "symlink",
+  isDirectory: entry.kind === "directory",
+  mtimeMs: entry.mtimeMs ?? 0,
+  atimeMs: 0,
+  ctimeMs: 0,
+  birthtimeMs: 0,
+  dev: 0,
+  ino: 0,
+  mode: entry.mode ?? 0,
+  nlink: 0,
+  uid: 0,
+  gid: 0,
+  rdev: 0,
+  size: entry.size ?? 0,
+  blocks: 0,
+})
+
+const entryType = (kind: string): "directory" | "file" | "symlink" => {
+  if (kind === "directory") return "directory"
+  if (kind === "symlink") return "symlink"
+  return "file"
+}
 
 export class Workload implements Interface {
-  readonly sandboxId: string
-  readonly boundaryToken: string
-  private stopped = false
+  readonly boundaryToken = undefined
+  private sealed = false
+  private readonly inflight = new Set<AbortController>()
 
-  private constructor(private readonly sandbox: E2BSandbox, boundaryToken: string, private readonly connectOptions: SandboxConnectOpts) {
-    this.sandboxId = sandbox.sandboxId
-    this.boundaryToken = boundaryToken
-  }
+  private constructor(
+    readonly sandboxId: string,
+    private readonly client: E2BClient.Service,
+    private readonly clientScope: Scope.Closeable,
+    private leaseScope: Scope.Closeable,
+    private lease: Lease<E2BClient.Provided> | undefined,
+    private readonly reference: SandboxReference,
+  ) {}
 
   static async create(options: CreateOptions = {}) {
     if (options.secure === false) throw new Error("E2B workload requires secure controller authentication")
-    if (options.envs && Object.keys(options.envs).length > 0) throw new Error("E2B workload does not allow sandbox-global environment variables")
-    const { journal, ...sandboxOptions } = options
-    const { Sandbox } = await import("@e2b/code-interpreter")
-    const sandbox = await Sandbox.create(sandboxOptions)
-    const boundaryToken = crypto.randomUUID().replaceAll("-", "")
-    const workload = new Workload(sandbox, boundaryToken, sandboxOptions)
+    if (options.envs && Object.keys(options.envs).length > 0)
+      throw new Error("E2B workload does not allow sandbox-global environment variables")
+    const session = await Workload.openSession()
     try {
-      await journal?.({ sandboxId: sandbox.sandboxId, boundaryToken, state: "created" })
-      await workload.install()
-      return workload
+      const request = await runPromise(
+        Provider.makeRequest({
+          resources: {},
+          lifecycle: LifecyclePolicy.persistent("keep", options.timeoutMs ?? 300_000),
+          metadata: options.metadata ?? {},
+        }),
+      )
+      const createOptions: {
+        secure: boolean
+        template?: string
+        timeoutMs?: number
+      } = { secure: options.secure ?? true }
+      if (options.template !== undefined) createOptions.template = options.template
+      if (options.timeoutMs !== undefined) createOptions.timeoutMs = options.timeoutMs
+      const lease = await runPromise(
+        session.client.create(createOptions, request).pipe(Effect.provideService(Scope.Scope, session.leaseScope)),
+      )
+      const workload = new Workload(
+        lease.binding.sandbox.id,
+        session.client,
+        session.clientScope,
+        session.leaseScope,
+        lease,
+        lease.binding.sandbox,
+      )
+      try {
+        await options.journal?.({ sandboxId: workload.sandboxId, state: "created" })
+        await runPromise(workload.sandbox().files.mkdir("/workspace", { recursive: true })).catch(() => undefined)
+        return workload
+      } catch (error) {
+        const cleanup = await workload.delete(options.journal).then(
+          () => undefined,
+          (cause: unknown) => asError(cause),
+        )
+        if (cleanup) throw new AggregateError([error, cleanup], "failed to create and clean up E2B workload", { cause: error })
+        throw error
+      }
     } catch (error) {
-      const cleanup = await Workload.cleanup(sandbox, boundaryToken, sandboxOptions, journal)
-      if (cleanup) throw new AggregateError([error, cleanup], "failed to create and clean up E2B workload", { cause: error })
+      await runPromise(Scope.close(session.leaseScope, Exit.succeed(undefined))).catch(() => undefined)
+      await runPromise(Scope.close(session.clientScope, Exit.succeed(undefined))).catch(() => undefined)
       throw error
     }
   }
 
   static async reconnect(options: ReconnectOptions) {
-    Workload.validateIdentity(options.sandboxId, options.boundaryToken)
-    const { sandboxId, boundaryToken, ...connectOptions } = options
-    const { Sandbox } = await import("@e2b/code-interpreter")
-    const sandbox = await Sandbox.connect(sandboxId, connectOptions)
-    if (sandbox.sandboxId !== sandboxId) throw new Error("E2B reconnected with a different sandbox ID")
-    const workload = new Workload(sandbox, boundaryToken, connectOptions)
-    await workload.verify()
-    return workload
+    Workload.validateIdentity(options.sandboxId)
+    const session = await Workload.openSession()
+    try {
+      const reference = await runPromise(
+        AdapterKit.decodeReference("e2b", AdapterKit.makeOwner("e2b", {}), options.sandboxId),
+      )
+      const lease = await runPromise(
+        session.client.connect(reference).pipe(Effect.provideService(Scope.Scope, session.leaseScope)),
+      )
+      if (lease.binding.sandbox.id !== options.sandboxId) throw new Error("E2B reconnected with a different sandbox ID")
+      return new Workload(
+        lease.binding.sandbox.id,
+        session.client,
+        session.clientScope,
+        session.leaseScope,
+        lease,
+        lease.binding.sandbox,
+      )
+    } catch (error) {
+      await runPromise(Scope.close(session.leaseScope, Exit.succeed(undefined))).catch(() => undefined)
+      await runPromise(Scope.close(session.clientScope, Exit.succeed(undefined))).catch(() => undefined)
+      throw error
+    }
   }
 
-  async run(file: string, options: RunOptions = {}) {
+  get guestFiles(): Filesystem {
+    return {
+      readFile: (path) => this.fileRead(path),
+      writeFile: (path, data, options) => this.fileWrite(path, data, options),
+      stat: (path) => this.fileStat(path),
+      mkdir: (path, options) => this.fileMkdir(path, options),
+      readdir: (path) => this.fileReaddir(path),
+      readdirEntries: (path) => this.fileReaddirEntries(path),
+      readdirRecursive: (path) => this.fileReaddirRecursive(path),
+      exists: (path) => this.fileExists(path),
+      remove: (path, options) => this.fileRemove(path, options),
+      move: (from, to) => this.fileMove(from, to),
+      realpath: (path) => this.fileRealpath(path),
+    }
+  }
+
+  async run(file: string, options: RunOptions = {}): Promise<RunResult> {
+    if (this.sealed) throw new Error("workload boundary is stopped")
     if (file.includes("/") && !file.startsWith("/")) throw new Error("workload executable path must be absolute")
-    const request = Buffer.from(
-      JSON.stringify({
-        file,
-        argv: [file, ...(options.args ?? [])],
-        cwd: options.cwd ?? "/workspace",
-        env: { HOME: "/home/user", PATH: "/usr/local/bin:/usr/bin:/bin", ...(options.env ?? {}) },
-        timeout: (options.timeoutMs ?? 60_000) / 1000,
-      }),
-    ).toString("base64")
-    const cancel = options.signal
-      ? () => {
-          void this.rootHelper(`cancel ${this.boundaryToken}`, 10_000).catch(() => undefined)
-        }
-      : undefined
-    options.signal?.addEventListener("abort", cancel!, { once: true })
-    const result = await this.rootHelper(`run ${this.boundaryToken} ${request}`, (options.timeoutMs ?? 60_000) + 10_000, options.signal).catch(async (error) => {
-      if (options.signal?.aborted) throw error
-      const cleanup = await this.stop().catch((stopError) => stopError)
-      if (cleanup instanceof Error) throw new AggregateError([error, cleanup], "workload command response lost and stop reconciliation failed", { cause: error })
-      throw error
-    }).finally(() => {
-      options.signal?.removeEventListener("abort", cancel!)
+    const sandbox = this.sandbox()
+    const commandOptions: {
+      cwd: string
+      environment: Record<string, string>
+      timeoutMs?: number
+    } = {
+      cwd: options.cwd ?? "/workspace",
+      environment: { ...defaultEnvironment, ...options.env },
+    }
+    if (options.timeoutMs !== undefined) commandOptions.timeoutMs = options.timeoutMs
+    const command = SandboxCommand.make(file, options.args ?? [], commandOptions)
+    const controller = new AbortController()
+    const onAbort = () => {
+      controller.abort()
+    }
+    options.signal?.addEventListener("abort", onAbort, { once: true })
+    this.inflight.add(controller)
+    const aborted = Effect.callback<never>((resume) => {
+      if (controller.signal.aborted) {
+        resume(Effect.interrupt)
+        return
+      }
+      const onInnerAbort = () => resume(Effect.interrupt)
+      controller.signal.addEventListener("abort", onInnerAbort, { once: true })
+      return Effect.sync(() => controller.signal.removeEventListener("abort", onInnerAbort))
     })
-    if (result.exitCode === 72) throw new Error("workload boundary is stopped")
-    return { exitCode: result.exitCode, stdout: Buffer.from(result.stdout, "utf8"), stderr: Buffer.from(result.stderr, "utf8"), output: result.output }
+    const work = Effect.scoped(
+      Effect.gen(function* () {
+        const process = yield* sandbox.spawn(command)
+        const chunks = yield* Stream.runCollect(process.output)
+        const observed = yield* process.awaitResult
+        const outputParts: Array<Uint8Array> = []
+        for (const chunk of chunks) outputParts.push(chunk.bytes)
+        const exitCode = Predicate.isTagged(observed.termination, "Exited") ? observed.termination.code : 137
+        const result: RunResult = {
+          exitCode,
+          stdout: observed.stdout,
+          stderr: observed.stderr,
+          output: concatBytes(outputParts),
+        }
+        return result
+      }),
+    )
+    try {
+      return await runPromise(Effect.raceFirst(work, aborted))
+    } finally {
+      options.signal?.removeEventListener("abort", onAbort)
+      this.inflight.delete(controller)
+    }
   }
 
   async stop() {
-    const result = await this.rootHelper(`stop ${this.boundaryToken}`, 15_000)
-    if (result.exitCode !== 0) throw new Error(`failed to stop workload boundary: ${result.stderr}`)
-    this.stopped = true
+    this.sealed = true
+    for (const controller of this.inflight) controller.abort()
   }
 
   async exportWorkspace() {
-    if (!this.stopped) throw new Error("workload must be stopped before export")
-    const result = await this.rootHelper(`export ${this.boundaryToken}`, 70_000)
-    if (result.exitCode !== 0) throw new Error(`workspace export failed: ${result.stderr}`)
-    const path = result.stdout.trim()
+    if (!this.sealed) throw new Error("workload must be stopped before export")
+    const archive = `/tmp/opencode-export-${crypto.randomUUID()}.tar`
+    const packed = await this.runTar(["-C", "/workspace", "-cf", archive, "."], 70_000)
+    if (packed.exitCode !== 0) throw new Error(`workspace export failed: ${new TextDecoder().decode(packed.stderr)}`)
     try {
-      return await this.sandbox.files.read(path, { format: "bytes", user: "user" })
+      const data = await runPromise(this.sandbox().files.read(archive, { maxBytes: 536_870_912 }))
+      await validateArchive(data)
+      return data
     } finally {
-      await this.rootHelper(`remove ${this.boundaryToken} ${path}`, 10_000)
+      await runPromise(this.sandbox().files.remove(archive, { recursive: false })).catch(() => undefined)
     }
   }
 
   async importWorkspace(data: Uint8Array) {
-    if (this.stopped) throw new Error("workload boundary is stopped")
+    if (this.sealed) throw new Error("workload boundary is stopped")
     await validateArchive(data)
-    const directory = `/run/opencode-boundary/import-${crypto.randomUUID().replaceAll("-", "")}`
-    const archive = `${directory}/workspace.tar`
-    const installed = await this.command(`install -d -o 1000 -g 1000 -m 700 ${directory}`, 10_000)
-    if (installed.exitCode !== 0) throw new Error(`workspace import staging failed: ${installed.stderr}`)
+    const archive = `/tmp/opencode-import-${crypto.randomUUID()}.tar`
+    await runPromise(this.sandbox().files.write(archive, data, { overwrite: true }))
     try {
-      await this.sandbox.files.write(archive, data.slice().buffer, { user: "user" })
-      const result = await this.rootHelper(`import ${this.boundaryToken} ${archive}`, 70_000)
-      if (result.exitCode !== 0) throw new Error(`workspace import failed: ${result.stderr}`)
-    } catch (cause) {
-      await this.command(`rm -rf -- ${directory}`, 10_000).catch(() => undefined)
-      throw cause
+      const unpacked = await this.runTar(["-C", "/workspace", "-xf", archive], 70_000)
+      if (unpacked.exitCode !== 0) throw new Error(`workspace import failed: ${new TextDecoder().decode(unpacked.stderr)}`)
+    } finally {
+      await runPromise(this.sandbox().files.remove(archive, { recursive: false })).catch(() => undefined)
     }
   }
 
   async pause() {
-    // A stopped workload is sealed; there is nothing left to pause and the boundary rejects further work.
-    if (this.stopped) return { sandboxId: this.sandboxId, boundaryToken: this.boundaryToken }
-    await this.verify()
-    await this.sandbox.pause()
-    return { sandboxId: this.sandboxId, boundaryToken: this.boundaryToken }
+    if (this.sealed) return { sandboxId: this.sandboxId }
+    await this.detachLease()
+    await runPromise(this.client.pause(this.reference))
+    return { sandboxId: this.sandboxId }
   }
 
   async delete(journal?: (entry: JournalEntry) => Promise<void>) {
-    const error = await Workload.cleanup(this.sandbox, this.boundaryToken, this.connectOptions, journal)
-    if (error) throw error
+    const failures: unknown[] = []
+    this.sealed = true
+    for (const controller of this.inflight) controller.abort()
+    await this.detachLease().catch((error) => failures.push(error))
+    const request = await runPromise(
+      Provider.makeRequest({
+        resources: {},
+        lifecycle: LifecyclePolicy.ephemeral(30_000),
+        metadata: {},
+      }),
+    ).catch((error: unknown) => {
+      failures.push(error)
+      return undefined
+    })
+    if (request) {
+      await runPromise(this.client.destroy(this.reference, request.operationId)).catch((error) => failures.push(error))
+    }
+    await runPromise(Scope.close(this.clientScope, Exit.succeed(undefined))).catch((error) => failures.push(error))
+    if (failures.length === 0) {
+      await journal?.({ sandboxId: this.sandboxId, state: "deleted" }).catch((error) => failures.push(error))
+    }
+    if (failures.length === 0) return
+    throw new AggregateError(failures, "failed to clean up E2B sandbox")
   }
 
-  private async install() {
-    const encoded = Buffer.from(helper).toString("base64")
-    const command = `set -eu; install -d -m 700 /usr/local/lib/opencode-boundary; install -d -m 711 /run/opencode-boundary; printf %s ${encoded} | base64 -d > /usr/local/lib/opencode-boundary/helper; chmod 700 /usr/local/lib/opencode-boundary/helper; install -d -o 1000 -g 1000 /workspace; cg=/sys/fs/cgroup/opencode-${this.boundaryToken}; mkdir "$cg"; inode=$(stat -c %i "$cg"); printf '{"token":"%s","cgroup":"%s","inode":%s,"sealed":false}\n' ${this.boundaryToken} "$cg" "$inode" > /run/opencode-workload.json; chmod 600 /run/opencode-workload.json`
-    const result = await this.command(command, 30_000)
-    if (result.exitCode !== 0) throw new Error(`failed to install workload boundary: ${result.stderr}`)
-    await this.verify()
+  private static async openSession() {
+    const clientScope = await runPromise(Scope.make())
+    const context = await runPromise(Layer.buildWithScope(E2BClient.layer(), clientScope))
+    const client = Context.get(context, E2BClient.E2BClient)
+    const leaseScope = await runPromise(Scope.make())
+    return { client, clientScope, leaseScope }
   }
 
-  private async verify() {
-    const valid = await this.rootHelper(`check ${this.boundaryToken}`, 10_000)
-      .then((result) => result.exitCode === 0)
-      .catch(() => false)
-    if (!valid) throw new Error("workload boundary identity is missing or stale")
+  private static validateIdentity(sandboxId: string) {
+    if (!sandboxIdPattern.test(sandboxId)) throw new Error("invalid E2B sandbox ID")
   }
 
-  private async rootHelper(args: string, timeoutMs: number, signal?: AbortSignal): Promise<CommandResult & { output: Buffer }> {
-    return this.command(`/usr/bin/env -i HOME=/root PATH=/usr/bin:/bin LANG=C /usr/bin/python3 -I -S /usr/local/lib/opencode-boundary/helper ${args}`, timeoutMs, signal)
+  private sandbox() {
+    if (this.lease === undefined) throw new Error("workload is not connected")
+    return Context.get(this.lease.bundle.context, Sandbox.Sandbox)
   }
 
-  private async command(command: string, timeoutMs: number, signal?: AbortSignal): Promise<CommandResult & { output: Buffer }> {
-    const { CommandExitError } = await import("@e2b/code-interpreter")
-    // The callbacks fire off the same ordered envd stream, giving the merged output its arrival order.
-    const merged: Buffer[] = []
-    const result = await this.sandbox.commands
-      .run(command, {
-        user: "root",
-        cwd: "/",
-        envs: { HOME: "/root", PATH: "/usr/bin:/bin", LANG: "C" },
-        timeoutMs,
-        signal,
-        onStdout: (data) => {
-          merged.push(Buffer.from(data, "utf8"))
-        },
-        onStderr: (data) => {
-          merged.push(Buffer.from(data, "utf8"))
-        },
-      })
-      .catch((error) => {
-        if (error instanceof CommandExitError) return error
-        throw error
-      })
-    return {
-      exitCode: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      output: Buffer.concat(merged),
+  private async detachLease() {
+    const scope = this.leaseScope
+    this.lease = undefined
+    await runPromise(Scope.close(scope, Exit.succeed(undefined)))
+  }
+
+  private async runTar(args: ReadonlyArray<string>, timeoutMs: number) {
+    const sealed = this.sealed
+    this.sealed = false
+    try {
+      return await this.run("/usr/bin/tar", { args, cwd: "/", timeoutMs })
+    } finally {
+      this.sealed = sealed
     }
   }
 
-  private static validateIdentity(sandboxId: string, boundaryToken: string) {
-    if (!/^[A-Za-z0-9_-]{1,128}$/.test(sandboxId)) throw new Error("invalid E2B sandbox ID")
-    if (!/^[0-9a-f]{32}$/.test(boundaryToken)) throw new Error("invalid workload boundary token")
+  private async fileRead(path: string) {
+    return runPromise(this.sandbox().files.read(path, { maxBytes: 536_870_912 })).catch((cause) => failFiles("read", cause))
   }
 
-  private static async cleanup(sandbox: E2BSandbox, boundaryToken: string, connectOptions: SandboxConnectOpts, journal?: (entry: JournalEntry) => Promise<void>) {
-    const failures: unknown[] = []
-    await sandbox.kill().catch((error) => failures.push(error))
-    const { Sandbox, NotFoundError } = await import("@e2b/code-interpreter")
-    const deleted = await Sandbox.connect(sandbox.sandboxId, { ...connectOptions, timeoutMs: 30_000, signal: undefined })
-      .then(() => false)
-      .catch((error) => {
-        if (error instanceof NotFoundError) return true
-        failures.push(error)
-        return false
-      })
-    if (deleted) await journal?.({ sandboxId: sandbox.sandboxId, boundaryToken, state: "deleted" }).catch((error) => failures.push(error))
-    if (!deleted && failures.length === 0) failures.push(new Error("E2B sandbox still exists after cleanup"))
-    if (failures.length === 0) return
-    return new AggregateError(failures, "failed to clean up E2B sandbox")
+  private async fileWrite(
+    path: string,
+    data: Uint8Array,
+    options?: { readonly flag?: "w" | "wx"; readonly mode?: number },
+  ) {
+    const writeOptions: { overwrite: boolean; mode?: number } = { overwrite: options?.flag !== "wx" }
+    if (options?.mode !== undefined) writeOptions.mode = options.mode
+    return runPromise(this.sandbox().files.write(path, data, writeOptions)).catch((cause) => failFiles("write", cause))
   }
+
+  private async fileStat(path: string) {
+    return runPromise(this.sandbox().files.stat(path))
+      .then(toStat)
+      .catch((cause) => failFiles("stat", cause))
+  }
+
+  private async fileMkdir(path: string, options?: { readonly recursive?: boolean }) {
+    return runPromise(this.sandbox().files.mkdir(path, { recursive: options?.recursive === true })).catch((cause) =>
+      failFiles("mkdir", cause),
+    )
+  }
+
+  private async fileReaddir(path: string) {
+    return runPromise(this.sandbox().files.list(path))
+      .then((entries) => entries.map((entry) => posix.basename(entry.path)))
+      .catch((cause) => failFiles("readdir", cause))
+  }
+
+  private async fileReaddirEntries(path: string) {
+    return runPromise(this.sandbox().files.list(path))
+      .then((entries) =>
+        entries.map((entry) => ({
+          name: posix.basename(entry.path),
+          isDirectory: entry.kind === "directory",
+          isSymbolicLink: entry.kind === "symlink",
+        })),
+      )
+      .catch((cause) => failFiles("readdir", cause))
+  }
+
+  private async fileReaddirRecursive(path: string) {
+    return runPromise(this.sandbox().files.list(path, { recursive: true }))
+      .then((entries) =>
+        entries.map((entry) => ({
+          path: entry.path,
+          type: entryType(entry.kind),
+        })),
+      )
+      .catch((cause) => failFiles("readdir", cause))
+  }
+
+  private async fileExists(path: string): Promise<boolean> {
+    try {
+      await runPromise(this.sandbox().files.stat(path))
+      return true
+    } catch (cause) {
+      if (Predicate.isTagged(cause, "NotFoundError")) return false
+      if (cause instanceof Error && /\bENOENT\b|no such file or directory/i.test(cause.message)) return false
+      failFiles("exists", cause)
+      return false
+    }
+  }
+
+  private async fileRemove(path: string, options?: { readonly recursive?: boolean }) {
+    return runPromise(this.sandbox().files.remove(path, { recursive: options?.recursive === true })).catch((cause) =>
+      failFiles("remove", cause),
+    )
+  }
+
+  private async fileMove(from: string, to: string) {
+    return runPromise(this.sandbox().files.rename(from, to)).catch((cause) => failFiles("move", cause))
+  }
+
+  private async fileRealpath(path: string) {
+    return runPromise(this.sandbox().files.realpath(path)).catch((cause) => failFiles("realpath", cause))
+  }
+}
+
+const concatBytes = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
+  const total = parts.reduce((sum, part) => sum + part.byteLength, 0)
+  const output = new Uint8Array(total)
+  let offset = 0
+  for (const part of parts) {
+    output.set(part, offset)
+    offset += part.byteLength
+  }
+  return output
 }

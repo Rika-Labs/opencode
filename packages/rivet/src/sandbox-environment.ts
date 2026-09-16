@@ -1,33 +1,14 @@
 export * as SandboxEnvironment from "./sandbox-environment.ts"
 
-import { ActorFilesystem, type FilesystemOperation } from "./actor-filesystem.ts"
+import { ActorFilesystem, type Filesystem, type FilesystemOperation } from "./actor-filesystem.ts"
+import { Workload as E2BWorkload } from "./e2b.ts"
 import type { Workload } from "./workload.ts"
-import { Effect, Schema } from "effect"
-import { posix } from "node:path"
+import { Effect } from "effect"
+import { existsSync } from "node:fs"
+import { lstat, mkdir, open as openFile, readdir, realpath, rename, rm } from "node:fs/promises"
+import { join, posix } from "node:path"
 
-const VoidResult = Schema.Struct({ type: Schema.Literal("void") })
-const ReadResult = Schema.Struct({ type: Schema.Literal("read"), data: Schema.String })
-const ExistsResult = Schema.Struct({ type: Schema.Literal("exists"), value: Schema.Boolean })
-const PathResult = Schema.Struct({ type: Schema.Literal("path"), path: Schema.String })
-const NamesResult = Schema.Struct({ type: Schema.Literal("names"), names: Schema.Array(Schema.String) })
-const DirectoryEntriesResult = Schema.Struct({
-  type: Schema.Literal("directoryEntries"),
-  entries: Schema.Array(Schema.Struct({ name: Schema.String, isDirectory: Schema.Boolean, isSymbolicLink: Schema.Boolean })),
-})
-const RecursiveEntriesResult = Schema.Struct({
-  type: Schema.Literal("recursiveEntries"),
-  entries: Schema.Array(Schema.Struct({ path: Schema.String, type: Schema.Literals(["directory", "file", "symlink"]), size: Schema.Number })),
-})
-const StatResult = Schema.Struct({
-  type: Schema.Literal("stat"),
-  stat: Schema.Struct({
-    isDirectory: Schema.Boolean, isSymbolicLink: Schema.Boolean, mtimeMs: Schema.Number, atimeMs: Schema.Number, ctimeMs: Schema.Number,
-    birthtimeMs: Schema.Number, dev: Schema.Number, ino: Schema.Number, mode: Schema.Number, nlink: Schema.Number,
-    uid: Schema.Number, gid: Schema.Number, rdev: Schema.Number, size: Schema.Number, blocks: Schema.Number,
-  }),
-})
-const FailureResult = Schema.Struct({ ok: Schema.Literal(false), code: Schema.String, message: Schema.String })
-const SuccessResult = Schema.Struct({ ok: Schema.Literal(true), result: Schema.Unknown })
+const VoidResult = { type: "void" as const }
 
 type FilesystemResult =
   | { readonly type: "void" }
@@ -37,19 +18,54 @@ type FilesystemResult =
   | { readonly type: "names"; readonly names: string[] }
   | { readonly type: "directoryEntries"; readonly entries: ReadonlyArray<{ readonly name: string; readonly isDirectory: boolean; readonly isSymbolicLink: boolean }> }
   | { readonly type: "recursiveEntries"; readonly entries: ReadonlyArray<{ readonly path: string; readonly type: "directory" | "file" | "symlink"; readonly size: number }> }
-  | { readonly type: "stat"; readonly stat: Schema.Schema.Type<typeof StatResult>["stat"] }
+  | {
+      readonly type: "stat"
+      readonly stat: {
+        readonly isDirectory: boolean
+        readonly isSymbolicLink: boolean
+        readonly mtimeMs: number
+        readonly atimeMs: number
+        readonly ctimeMs: number
+        readonly birthtimeMs: number
+        readonly dev: number
+        readonly ino: number
+        readonly mode: number
+        readonly nlink: number
+        readonly uid: number
+        readonly gid: number
+        readonly rdev: number
+        readonly size: number
+        readonly blocks: number
+      }
+    }
 
 export function open(workload: Workload.Interface) {
   let pending = Promise.resolve()
   let closed = false
+  let realRoot: string | undefined
   const serialized = <A>(task: () => Promise<A>) => {
     const result = pending.then(task)
     pending = result.then(() => undefined, () => undefined)
     return result
   }
-  const failure = (operation: string, cause: unknown, filesystemCode?: string) => new ActorFilesystem.Error({ operation, cause, filesystemCode })
-  // The actor speaks guest-absolute /workspace paths. Sandbox workloads mount the workspace there,
-  // but a local workload executes on the host under its root directory.
+  const nodeFilesystemCode = (cause: unknown): string | undefined => {
+    if (typeof cause === "object" && cause !== null && "code" in cause && typeof cause.code === "string") return cause.code
+    if (cause instanceof Error && /\bEEXIST\b|file exists/i.test(cause.message)) return "EEXIST"
+    if (cause instanceof Error && /\bENOENT\b|no such file or directory/i.test(cause.message)) return "ENOENT"
+    if (cause instanceof Error && /\bEACCES\b|\bEPERM\b|permission denied/i.test(cause.message)) return "EACCES"
+  }
+  const failure = (operation: string, cause: unknown, filesystemCode?: string) => {
+    const fields: { operation: string; cause: unknown; filesystemCode?: string } = { operation, cause }
+    if (filesystemCode !== undefined) fields.filesystemCode = filesystemCode
+    return new ActorFilesystem.Error(fields)
+  }
+  const rootAliases = () => {
+    const root = workload.root
+    if (root === undefined) return []
+    const aliases = [root]
+    if (realRoot !== undefined && realRoot !== root) aliases.push(realRoot)
+    return aliases
+  }
   const toHost = (path: string) => {
     if (workload.root === undefined) return path
     if (path === "/workspace") return workload.root
@@ -57,9 +73,10 @@ export function open(workload: Workload.Interface) {
     return path
   }
   const fromHost = (path: string) => {
-    if (workload.root === undefined) return path
-    if (path === workload.root) return "/workspace"
-    if (path.startsWith(`${workload.root}/`)) return `/workspace/${path.slice(workload.root.length + 1)}`
+    for (const root of rootAliases()) {
+      if (path === root) return "/workspace"
+      if (path.startsWith(`${root}/`)) return `/workspace/${path.slice(root.length + 1)}`
+    }
     return path
   }
   const locate = (input: FilesystemOperation): FilesystemOperation => {
@@ -67,9 +84,13 @@ export function open(workload: Workload.Interface) {
     if (input.type === "move") return { ...input, from: toHost(input.from), to: toHost(input.to) }
     return { ...input, path: toHost(input.path) }
   }
+  const files = (): Filesystem => {
+    if (workload.root !== undefined) return hostFilesystem()
+    if (workload instanceof E2BWorkload) return workload.guestFiles
+    throw failure("filesystem", "Filesystem is unsupported for this workload")
+  }
   const run = (input: { command: string; args?: readonly string[]; cwd?: string; timeoutMs: number; maxOutputBytes: number }, signal?: AbortSignal) => serialized(async () => {
     if (closed) throw failure("run", "Environment is stopped")
-    // A relative cwd is workspace-relative, matching how the filesystem layer resolves paths.
     const cwd = input.cwd === undefined ? undefined : toHost(input.cwd.startsWith("/") ? input.cwd : posix.resolve("/workspace", input.cwd))
     const result = await workload.run(input.command, { args: input.args, cwd, timeoutMs: input.timeoutMs, signal })
     const stdout = Buffer.from(result.stdout).subarray(0, input.maxOutputBytes)
@@ -85,26 +106,19 @@ export function open(workload: Workload.Interface) {
   })
   const filesystem = (input: FilesystemOperation): Promise<FilesystemResult> => serialized(async () => {
     if (closed) throw failure(input.type, "Environment is stopped")
+    if (workload.root !== undefined && realRoot === undefined) {
+      realRoot = await realpath(workload.root).catch(() => workload.root)
+    }
     const located = locate(input)
-    const encoded = Buffer.from(JSON.stringify(located.type === "write" ? { ...located, data: Buffer.from(located.data).toString("base64") } : located)).toString("base64")
-    const execution = await workload.run("python3", { args: ["-I", "-S", "-c", filesystemHelper, encoded], timeoutMs: 30_000 })
-    if (execution.exitCode !== 0) throw failure(input.type, execution.stderr || "filesystem helper failed")
-    const envelope = await Schema.decodeUnknownPromise(Schema.Union([FailureResult, SuccessResult]))(JSON.parse(Buffer.from(execution.stdout).toString("utf8")))
-    if (!envelope.ok) throw failure(input.type, envelope.message, envelope.code)
-    const schema = input.type === "read" ? ReadResult : input.type === "stat" ? StatResult : input.type === "exists" ? ExistsResult : input.type === "realpath" ? PathResult : input.type === "readdir" ? input.recursive ? RecursiveEntriesResult : input.entries ? DirectoryEntriesResult : NamesResult : VoidResult
-    const value = await Schema.decodeUnknownPromise(schema)(envelope.result)
-    if (value.type === "read") return { type: value.type, data: Buffer.from(value.data, "base64") }
-    if (value.type === "names") return { type: value.type, names: [...value.names] }
-    if (value.type === "directoryEntries") return { type: value.type, entries: value.entries.map((entry) => ({ ...entry })) }
-    if (value.type === "recursiveEntries") return { type: value.type, entries: value.entries.map((entry) => ({ ...entry, path: fromHost(entry.path) })) }
-    if (value.type === "stat") return { type: value.type, stat: { ...value.stat } }
-    if (value.type === "path") return { type: value.type, path: fromHost(value.path) }
-    return value
+    const result = await applyFilesystem(files(), located)
+    if (result.type === "recursiveEntries") return { type: result.type, entries: result.entries.map((entry) => ({ ...entry, path: fromHost(entry.path) })) }
+    if (result.type === "path") return { type: result.type, path: fromHost(result.path) }
+    return result
   })
   return {
     run: (input: Parameters<typeof run>[0]) => {
       const controller = new AbortController()
-      return Effect.tryPromise({ try: () => run(input, controller.signal), catch: (cause) => cause instanceof ActorFilesystem.Error ? cause : failure("run", cause) }).pipe(
+      return Effect.tryPromise({ try: () => run(input, controller.signal), catch: (cause) => cause instanceof ActorFilesystem.Error ? cause : failure("run", cause, nodeFilesystemCode(cause)) }).pipe(
         Effect.onInterrupt(() =>
           Effect.promise(async () => {
             controller.abort()
@@ -112,36 +126,142 @@ export function open(workload: Workload.Interface) {
         ),
       )
     },
-    filesystem: (input: FilesystemOperation) => Effect.tryPromise({ try: () => filesystem(input), catch: (cause) => cause instanceof ActorFilesystem.Error ? cause : failure(input.type, cause) }),
-    stop: Effect.tryPromise({ try: () => serialized(async () => { closed = true; await workload.stop() }), catch: (cause) => failure("stop", cause) }),
+    filesystem: (input: FilesystemOperation) => Effect.tryPromise({ try: () => filesystem(input), catch: (cause) => cause instanceof ActorFilesystem.Error ? cause : failure(input.type, cause, nodeFilesystemCode(cause)) }),
+    stop: Effect.tryPromise({ try: () => serialized(async () => { closed = true; await workload.stop() }), catch: (cause) => failure("stop", cause, nodeFilesystemCode(cause)) }),
     workload,
   }
 }
 
-const filesystemHelper = String.raw`import base64,errno,json,os,shutil,stat,sys
-r=json.loads(base64.b64decode(sys.argv[1])); t=r["type"]
-def emit(value): print(json.dumps({"ok":True,"result":value},separators=(",",":")))
-try:
- if t=="read": emit({"type":"read","data":base64.b64encode(open(r["path"],"rb").read()).decode()})
- elif t=="write":
-  f=os.open(r["path"],os.O_WRONLY|os.O_CREAT|(os.O_EXCL if r.get("flag")=="wx" else os.O_TRUNC),r.get("mode",438))
-  with os.fdopen(f,"wb",closefd=True) as out: out.write(base64.b64decode(r["data"])); out.flush(); os.fsync(out.fileno())
-  emit({"type":"void"})
- elif t=="exists": emit({"type":"exists","value":os.path.exists(r["path"])})
- elif t=="mkdir": os.makedirs(r["path"],exist_ok=True) if r.get("recursive") else os.mkdir(r["path"]); emit({"type":"void"})
- elif t=="remove": shutil.rmtree(r["path"]) if r.get("recursive") and os.path.isdir(r["path"]) and not os.path.islink(r["path"]) else (os.rmdir(r["path"]) if os.path.isdir(r["path"]) and not os.path.islink(r["path"]) else os.unlink(r["path"])); emit({"type":"void"})
- elif t=="move": os.rename(r["from"],r["to"]); emit({"type":"void"})
- elif t=="realpath": emit({"type":"path","path":os.path.realpath(r["path"])})
- elif t=="readdir":
-  if r["recursive"]:
-   entries=[]
-   for root,dirs,files in os.walk(r["path"],followlinks=False):
-    for name in dirs+files:
-     p=os.path.join(root,name); s=os.lstat(p); entries.append({"path":p,"type":"symlink" if stat.S_ISLNK(s.st_mode) else "directory" if stat.S_ISDIR(s.st_mode) else "file","size":s.st_size})
-   emit({"type":"recursiveEntries","entries":entries})
-  elif r["entries"]:
-   emit({"type":"directoryEntries","entries":[{"name":e.name,"isDirectory":e.is_dir(follow_symlinks=False),"isSymbolicLink":e.is_symlink()} for e in os.scandir(r["path"])]})
-  else: emit({"type":"names","names":os.listdir(r["path"])})
- elif t=="stat":
-  s=os.lstat(r["path"]); emit({"type":"stat","stat":{"isDirectory":stat.S_ISDIR(s.st_mode),"isSymbolicLink":stat.S_ISLNK(s.st_mode),"mtimeMs":s.st_mtime*1000,"atimeMs":s.st_atime*1000,"ctimeMs":s.st_ctime*1000,"birthtimeMs":s.st_ctime*1000,"dev":s.st_dev,"ino":s.st_ino,"mode":s.st_mode,"nlink":s.st_nlink,"uid":s.st_uid,"gid":s.st_gid,"rdev":s.st_rdev,"size":s.st_size,"blocks":s.st_blocks}})
-except OSError as e: print(json.dumps({"ok":False,"code":errno.errorcode.get(e.errno,"EIO"),"message":str(e)},separators=(",",":")))`
+async function applyFilesystem(filesystem: Filesystem, input: FilesystemOperation): Promise<FilesystemResult> {
+  if (input.type === "read") return { type: "read", data: await filesystem.readFile(input.path) }
+  if (input.type === "write") {
+    const writeOptions: { flag?: "w" | "wx"; mode?: number } = {}
+    if (input.flag !== undefined) writeOptions.flag = input.flag
+    if (input.mode !== undefined) writeOptions.mode = input.mode
+    await filesystem.writeFile(input.path, input.data, writeOptions)
+    return VoidResult
+  }
+  if (input.type === "exists") return { type: "exists", value: await filesystem.exists(input.path) }
+  if (input.type === "mkdir") {
+    await filesystem.mkdir(input.path, { recursive: input.recursive })
+    return VoidResult
+  }
+  if (input.type === "remove") {
+    await filesystem.remove(input.path, { recursive: input.recursive })
+    return VoidResult
+  }
+  if (input.type === "move") {
+    await filesystem.move(input.from, input.to)
+    return VoidResult
+  }
+  if (input.type === "realpath") return { type: "path", path: await filesystem.realpath(input.path) }
+  if (input.type === "readdir") {
+    if (input.recursive) {
+      const entries = await filesystem.readdirRecursive(input.path)
+      const sized = await Promise.all(
+        entries.map(async (entry) => {
+          const info = await filesystem.stat(entry.path)
+          const type: "directory" | "file" | "symlink" =
+            entry.type === "directory" || entry.type === "symlink" ? entry.type : "file"
+          return { path: entry.path, type, size: info.size }
+        }),
+      )
+      return { type: "recursiveEntries", entries: sized }
+    }
+    if (input.entries) return { type: "directoryEntries", entries: [...(await filesystem.readdirEntries(input.path))] }
+    return { type: "names", names: await filesystem.readdir(input.path) }
+  }
+  const stat = await filesystem.stat(input.path)
+  return {
+    type: "stat",
+    stat: {
+      isDirectory: stat.isDirectory,
+      isSymbolicLink: stat.isSymbolicLink,
+      mtimeMs: stat.mtimeMs,
+      atimeMs: stat.atimeMs,
+      ctimeMs: stat.ctimeMs,
+      birthtimeMs: stat.birthtimeMs,
+      dev: stat.dev,
+      ino: stat.ino,
+      mode: stat.mode,
+      nlink: stat.nlink,
+      uid: stat.uid,
+      gid: stat.gid,
+      rdev: stat.rdev,
+      size: stat.size,
+      blocks: stat.blocks,
+    },
+  }
+}
+
+function hostFilesystem(): Filesystem {
+  return {
+    readFile: async (path) => {
+      const { readFile } = await import("node:fs/promises")
+      return readFile(path)
+    },
+    writeFile: async (path, data, options) => {
+      const handle = await openFile(path, options?.flag === "wx" ? "wx" : "w", options?.mode)
+      try {
+        await handle.writeFile(data)
+      } finally {
+        await handle.close()
+      }
+    },
+    stat: async (path) => {
+      const info = await lstat(path)
+      return {
+        isSymbolicLink: info.isSymbolicLink(),
+        isDirectory: info.isDirectory(),
+        mtimeMs: info.mtimeMs,
+        atimeMs: info.atimeMs,
+        ctimeMs: info.ctimeMs,
+        birthtimeMs: info.birthtimeMs,
+        dev: info.dev,
+        ino: info.ino,
+        mode: info.mode,
+        nlink: info.nlink,
+        uid: info.uid,
+        gid: info.gid,
+        rdev: info.rdev,
+        size: info.size,
+        blocks: info.blocks,
+      }
+    },
+    mkdir: async (path, options) => {
+      await mkdir(path, { recursive: options?.recursive })
+    },
+    readdir: async (path) => readdir(path),
+    readdirEntries: async (path) => {
+      const entries = await readdir(path, { withFileTypes: true })
+      return entries.map((entry) => ({
+        name: entry.name,
+        isSymbolicLink: entry.isSymbolicLink(),
+        isDirectory: entry.isDirectory(),
+      }))
+    },
+    readdirRecursive: async (path) => {
+      const entries: { path: string; type: string }[] = []
+      const walk = async (directory: string) => {
+        for (const entry of await readdir(directory, { withFileTypes: true })) {
+          const full = join(directory, entry.name)
+          entries.push({
+            path: full,
+            type: entry.isSymbolicLink() ? "symlink" : entry.isDirectory() ? "directory" : "file",
+          })
+          if (entry.isDirectory() && !entry.isSymbolicLink()) await walk(full)
+        }
+      }
+      await walk(path)
+      return entries
+    },
+    exists: (path) => Promise.resolve(existsSync(path)),
+    remove: async (path, options) => {
+      await rm(path, { recursive: options?.recursive })
+    },
+    move: async (from, to) => {
+      await rename(from, to)
+    },
+    realpath: (path) => realpath(path),
+  }
+}

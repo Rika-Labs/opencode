@@ -113,11 +113,16 @@ export function make(client: Client.Client, options: Pick<Options, "binding"> = 
             const root = AbsolutePath.make(environment.root ?? "/workspace")
             return (options.binding
               ? options.binding({ workspaceID, root })
-              : Effect.succeed({
+                  : Effect.succeed({
                   project: { id: Project.ID.make(workspaceID), directory: root },
                   process: process(workspaceID, environment.generation),
                 })).pipe(
-                  Effect.map((binding) => ({ root, ...binding, filesystem: filesystem(workspaceID, environment.generation, root) })),
+                  Effect.map((binding) => ({
+                    root,
+                    ...binding,
+                    isolated: environment.backend !== "local",
+                    filesystem: filesystem(workspaceID, environment.generation, root),
+                  })),
                 )
           }),
           mapError("bind"),

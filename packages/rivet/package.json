@@ -18,15 +18,13 @@
     "@rivetkit/effect": "2.3.17",
     "effect": "catalog:",
     "fuzzysort": "catalog:",
-    "rivetkit": "2.3.17"
+    "rivetkit": "2.3.17",
+    "effect-sandbox": "file:../../../effect-sandbox"
   },
   "devDependencies": {
     "@tsconfig/bun": "catalog:",
     "@types/bun": "catalog:",
     "@typescript/native-preview": "catalog:",
     "tsx": "4.23.13"
-  },
-  "optionalDependencies": {
-    "@e2b/code-interpreter": "2.3.3"
   }
 }
