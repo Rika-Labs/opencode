@@ -49,8 +49,6 @@ describe.serial("workspace provider location graph", () => {
               }),
             create: () => Effect.die("unused"),
             environment: () => Effect.die("unused"),
-            promote: () => Effect.die("unused"),
-            promotion: () => Effect.die("unused"),
           }
           const replacements: LayerNode.Replacements = [
             [
@@ -169,8 +167,6 @@ describe.serial("workspace provider location graph", () => {
             },
             create: () => Effect.die("unused"),
             environment: () => Effect.die("unused"),
-            promote: () => Effect.die("unused"),
-            promotion: () => Effect.die("unused"),
           }
           const target = WorkspaceV2.ID.make("wrk_target")
           const separate = WorkspaceV2.ID.make("wrk_separate")
@@ -250,8 +246,6 @@ describe.serial("workspace provider location graph", () => {
               }),
             create: () => Effect.die("unused"),
             environment: () => Effect.die("unused"),
-            promote: () => Effect.die("unused"),
-            promotion: () => Effect.die("unused"),
           }
           const locations = Context.get(
             yield* Layer.build(buildLocationServiceMap([[SkillGuidance.node, guidance]], provider)),

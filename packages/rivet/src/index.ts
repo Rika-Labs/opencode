@@ -1,9 +1,7 @@
-export { AgentOS } from "./agentos.ts"
 export { make as makeActorProcess } from "./actor-process.ts"
 export { Actors } from "./actors.ts"
 export { Rivet } from "./provider.ts"
 export { RivetAppHost } from "./app-host.ts"
-export { Sandbox } from "./sandbox.ts"
 export {
   CancelCommand,
   CommandStatus,

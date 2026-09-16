@@ -7,7 +7,7 @@ import { FileSystem } from "./filesystem"
 
 export namespace WorkspaceProvider {
   export type EnvironmentTarget =
-    | { readonly type: "agentos" }
+    | { readonly type: "local"; readonly root: string }
     | { readonly type: "sandbox"; readonly provider: string }
 
   export interface Capabilities {
@@ -28,12 +28,6 @@ export namespace WorkspaceProvider {
   export interface Workspace {
     readonly id: WorkspaceV2.ID
     readonly location: Location.Ref
-  }
-
-  export interface Promotion {
-    readonly id: string
-    readonly status: "waiting_for_idle" | "provisioning" | "copying" | "verifying" | "completed" | "failed"
-    readonly message?: string
   }
 
   export class Error extends Schema.TaggedErrorClass<Error>()("WorkspaceProviderError", {
@@ -65,15 +59,6 @@ export namespace WorkspaceProvider {
       readonly environment: EnvironmentTarget
     }) => Effect.Effect<Workspace, Error>
     readonly environment: (input: { readonly workspaceID: WorkspaceV2.ID }) => Effect.Effect<Environment, Error>
-    readonly promote: (input: {
-      readonly workspaceID: WorkspaceV2.ID
-      readonly requestID: string
-      readonly target: EnvironmentTarget
-    }) => Effect.Effect<Promotion, Error>
-    readonly promotion: (input: {
-      readonly workspaceID: WorkspaceV2.ID
-      readonly operationID: string
-    }) => Effect.Effect<Promotion, Error>
   }
 
   export function binding(

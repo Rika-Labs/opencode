@@ -9,9 +9,11 @@ import { Effect, Layer, Sink } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { Rivet } from "../../src/provider.ts"
 import { WorkspaceActor } from "../../src/workspace-actor.ts"
-import { registryRuntime } from "../registry-fixture.ts"
+import { live, providerTarget, registryRuntime } from "../registry-fixture.ts"
 
-test("agentOS actor composition implements workspace lifecycle and binding", async () => {
+test("sandbox actor composition implements workspace lifecycle and binding", {
+  timeout: 300_000,
+}, async () => {
   const runtime = Layer.mergeAll(
     registryRuntime,
     Layer.mock(FSUtil.Service, {
@@ -21,13 +23,14 @@ test("agentOS actor composition implements workspace lifecycle and binding", asy
     }),
     Layer.mock(AppProcess.Service, {}),
   )
+  const { target, directory } = await providerTarget()
   await Effect.runPromise(
     Effect.gen(function* () {
       const provider = Rivet.make(yield* Client.Client)
-      const workspace = yield* provider.create({ name: "test", environment: { type: "agentos" } })
-      assert.equal(workspace.location.directory, "/workspace")
+      const workspace = yield* provider.create({ name: "test", environment: target })
+      assert.equal(workspace.location.directory, directory)
       assert.deepEqual(yield* provider.environment({ workspaceID: workspace.id }), {
-        backend: "agentos",
+        backend: live ? "sandbox" : "local",
         generation: 1,
         capabilities: {
           filesystem: true,
@@ -50,12 +53,23 @@ test("agentOS actor composition implements workspace lifecycle and binding", asy
         .pipe(Effect.flip)
       assert.equal(existing.reason._tag, "AlreadyExists")
       assert.equal(yield* binding.filesystem.readFileString("remote.txt"), "actor filesystem")
+      // Path-returning operations must round-trip through the mount and guest path spaces.
+      yield* binding.filesystem.writeWithDirs("nested/deep/file.txt", "nested content")
+      assert.deepEqual((yield* binding.filesystem.readDirectory("nested/deep")).sort(), ["file.txt"])
+      assert.deepEqual((yield* binding.filesystem.readDirectoryEntries("nested/deep")).map((entry) => entry.name).sort(), ["file.txt"])
+      assert.deepEqual((yield* binding.filesystem.readDirectory(".", { recursive: true })).sort(), ["nested", "nested/deep", "nested/deep/file.txt", "remote.txt"])
+      assert.deepEqual(yield* binding.filesystem.glob("deep/*.txt", { cwd: "nested" }), ["deep/file.txt"])
+      assert.deepEqual(yield* binding.filesystem.glob("deep/*.txt", { cwd: "nested", absolute: true }), [`${directory}/nested/deep/file.txt`])
+      assert.equal(yield* binding.filesystem.resolve("nested/deep"), `${directory}/nested/deep`)
+      assert.deepEqual(yield* binding.filesystem.findUp("file.txt", "nested/deep"), [`${directory}/nested/deep/file.txt`])
+      assert.equal(yield* binding.filesystem.readFileString("nested/deep/file.txt"), "nested content")
       const shell = yield* binding.process.run(
         ChildProcess.make("printf out; printf err >&2; exit 7", [], { shell: "/bin/sh" }),
         { combineOutput: true },
       )
       assert.equal(shell.exitCode, 7)
-      assert.equal(shell.output?.toString(), "outerr")
+      // Cross-stream interleaving is scheduler-dependent; the merge must contain both streams in full.
+      assert.deepEqual([...(shell.output?.toString() ?? "")].sort(), [..."outerr"].sort())
       const controller = new AbortController()
       yield* Effect.sleep("200 millis").pipe(
         Effect.andThen(Effect.sync(() => controller.abort(new Error("cancel requested")))),
@@ -77,10 +91,6 @@ test("agentOS actor composition implements workspace lifecycle and binding", asy
       yield* actor.Stop()
       const stopped = yield* provider.bind(workspace.location).pipe(Effect.flip)
       assert.equal(stopped.code, "unsupported")
-      const promotion = yield* provider
-        .promote({ workspaceID: workspace.id, requestID: "request", target: { type: "sandbox", provider: "e2b" } })
-        .pipe(Effect.flip)
-      assert.equal(promotion.code, "unsupported")
-    }).pipe(Effect.provide(runtime), Effect.timeout("20 seconds")),
+    }).pipe(Effect.provide(runtime), Effect.timeout("120 seconds")),
   )
 })

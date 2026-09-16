@@ -1,9 +1,32 @@
-export * as AgentOSFilesystem from "./agentos-filesystem.ts"
+export * as ActorFilesystem from "./actor-filesystem.ts"
 
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Glob } from "@opencode-ai/core/util/glob"
-import { Effect, FileSystem, Option, PlatformError } from "effect"
+import { Effect, FileSystem, Option, PlatformError, Schema } from "effect"
 import { posix } from "node:path"
+
+export class Error extends Schema.TaggedErrorClass<Error>()("Rivet.ActorFilesystemError", {
+  operation: Schema.String,
+  cause: Schema.Defect(),
+  filesystemCode: Schema.optional(Schema.String),
+}) {}
+
+export type FilesystemOperation =
+  | { readonly type: "read"; readonly path: string }
+  | {
+      readonly type: "write"
+      readonly path: string
+      readonly data: Uint8Array
+      readonly flag?: "w" | "wx"
+      readonly mode?: number
+    }
+  | { readonly type: "stat"; readonly path: string }
+  | { readonly type: "mkdir"; readonly path: string; readonly recursive?: boolean }
+  | { readonly type: "readdir"; readonly path: string; readonly recursive: boolean; readonly entries: boolean }
+  | { readonly type: "exists"; readonly path: string }
+  | { readonly type: "remove"; readonly path: string; readonly recursive?: boolean }
+  | { readonly type: "move"; readonly from: string; readonly to: string }
+  | { readonly type: "realpath"; readonly path: string }
 
 export interface Filesystem {
   readonly readFile: (path: string) => Promise<Uint8Array>
@@ -13,6 +36,7 @@ export interface Filesystem {
     readonly isDirectory: boolean
     readonly mtimeMs: number
     readonly atimeMs: number
+    readonly ctimeMs: number
     readonly birthtimeMs: number
     readonly dev: number
     readonly ino: number
@@ -35,14 +59,17 @@ export interface Filesystem {
   readonly realpath: (path: string) => Promise<string>
 }
 
-export function make(filesystem: Filesystem, guestRoot: string): FSUtil.Interface {
-  const root = posix.resolve("/", guestRoot)
-  if (root !== "/workspace") throw new Error("guest root must be the /workspace mount")
+export function make(filesystem: Filesystem, mountRoot: string): FSUtil.Interface {
+  const mount = posix.resolve("/", mountRoot)
+  if (mount === "/") throw new globalThis.Error("guest mount must not be the filesystem root")
+  // The actor speaks guest-absolute paths rooted at /workspace; the caller may mount it anywhere.
+  const toGuest = (resolved: string) => (mount === "/workspace" ? resolved : `/workspace${resolved.slice(mount.length)}`)
+  const fromGuest = (guest: string) => (mount === "/workspace" ? guest : `${mount}${guest.slice("/workspace".length)}`)
 
   const path = (input: string) => {
-    const resolved = input.startsWith("/") ? posix.resolve(input) : posix.resolve(root, input)
-    if (resolved !== root && !resolved.startsWith(`${root}/`)) throw new Error(`path escapes guest root: ${input}`)
-    return resolved
+    const resolved = input.startsWith("/") ? posix.resolve(input) : posix.resolve(mount, input)
+    if (resolved !== mount && !resolved.startsWith(`${mount}/`)) throw new globalThis.Error(`path escapes guest mount: ${input}`)
+    return toGuest(resolved)
   }
   const reason = (cause: unknown): "AlreadyExists" | "NotFound" | "PermissionDenied" | "Unknown" => {
     if (typeof cause === "object" && cause !== null && "code" in cause) {
@@ -155,9 +182,9 @@ export function make(filesystem: Filesystem, guestRoot: string): FSUtil.Interfac
         Effect.flatMap((target) =>
           call("realPath", input, () => filesystem.realpath(target)).pipe(
             Effect.flatMap((canonical) =>
-              posix.isAbsolute(canonical) && posix.normalize(canonical) === canonical
-                ? guestPath(canonical, "realPath")
-                : Effect.fail(failure("realPath", input, "invalid canonical guest path")),
+              canonical === "/workspace" || canonical.startsWith("/workspace/")
+                ? Effect.succeed(fromGuest(canonical))
+                : Effect.fail(failure("realPath", input, "canonical path escapes guest mount")),
             ),
           ),
         ),
@@ -183,7 +210,7 @@ export function make(filesystem: Filesystem, guestRoot: string): FSUtil.Interfac
       ),
     )
   const glob = (pattern: string, options: Glob.Options = {}) =>
-    guestPath(options.cwd ?? root, "glob").pipe(
+    guestPath(options.cwd ?? "/workspace", "glob").pipe(
       Effect.flatMap((cwd) =>
         call("glob", pattern, async () => {
           const entries = await filesystem.readdirRecursive(cwd)
@@ -191,7 +218,7 @@ export function make(filesystem: Filesystem, guestRoot: string): FSUtil.Interfac
             .filter((entry) => options.include === "all" || entry.type !== "directory")
             .filter((entry) => options.dot || !posix.relative(cwd, entry.path).split("/").some((part) => part.startsWith(".")))
             .filter((entry) => Glob.match(pattern, posix.relative(cwd, entry.path)))
-            .map((entry) => (options.absolute ? entry.path : posix.relative(cwd, entry.path)))
+            .map((entry) => (options.absolute ? fromGuest(entry.path) : posix.relative(cwd, entry.path)))
         }),
       ),
     )
@@ -199,14 +226,14 @@ export function make(filesystem: Filesystem, guestRoot: string): FSUtil.Interfac
     Effect.gen(function* () {
       const result: string[] = []
       const start = path(options.start)
-      const stop = options.stop ? path(options.stop) : root
+      const stop = options.stop ? path(options.stop) : "/workspace"
       let current = start
       while (true) {
         for (const target of options.targets) {
           const candidate = posix.join(current, target)
-          if (yield* exists(candidate)) result.push(candidate)
+          if (yield* exists(fromGuest(candidate))) result.push(fromGuest(candidate))
         }
-        if (current === stop || current === root) break
+        if (current === stop || current === "/workspace") break
         current = posix.dirname(current)
       }
       return result
@@ -216,10 +243,10 @@ export function make(filesystem: Filesystem, guestRoot: string): FSUtil.Interfac
     Effect.gen(function* () {
       const result: string[] = []
       let current = path(start)
-      const boundary = stop ? path(stop) : root
+      const boundary = stop ? path(stop) : "/workspace"
       while (true) {
-        result.push(...(yield* glob(pattern, { cwd: current, absolute: true, include: "file", dot: true })))
-        if (current === boundary || current === root) break
+        result.push(...(yield* glob(pattern, { cwd: fromGuest(current), absolute: true, include: "file", dot: true })))
+        if (current === boundary || current === "/workspace") break
         current = posix.dirname(current)
       }
       return result
@@ -249,7 +276,7 @@ export function make(filesystem: Filesystem, guestRoot: string): FSUtil.Interfac
     writeJson: (input, data, mode) => base.writeFileString(input, JSON.stringify(data, null, 2), { mode }),
     ensureDir: (input) => makeDirectory(input, { recursive: true }),
     writeWithDirs: (input, content, mode) =>
-      makeDirectory(posix.dirname(path(input)), { recursive: true }).pipe(
+      makeDirectory(fromGuest(posix.dirname(path(input))), { recursive: true }).pipe(
         Effect.andThen(
           typeof content === "string"
             ? base.writeFileString(input, content, { mode })
@@ -261,7 +288,7 @@ export function make(filesystem: Filesystem, guestRoot: string): FSUtil.Interfac
       base.realPath(input).pipe(
         Effect.catchIf(
           (error) => error.reason._tag === "NotFound",
-          () => Effect.succeed(path(input)),
+          () => Effect.succeed(fromGuest(path(input))),
         ),
         Effect.orDie,
       ),

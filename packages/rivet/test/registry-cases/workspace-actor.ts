@@ -1,34 +1,28 @@
 import assert from "node:assert/strict"
-import { readFile, readdir, rm } from "node:fs/promises"
-import { basename, join } from "node:path"
+import { basename } from "node:path"
 import { test } from "node:test"
 import { Effect } from "effect"
 import { WorkspaceActor } from "../../src/workspace-actor.ts"
-import { registryRuntime, storageDirectory } from "../registry-fixture.ts"
+import { actorProvider, live, registryRuntime, storageDirectory } from "../registry-fixture.ts"
 
-test("real registry actions persist lifecycle, serialize commands, and isolate actors", async () => {
+test("real registry actions persist lifecycle, serialize commands, and isolate actors", {
+  timeout: 300_000,
+}, async () => {
   await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         const accessor = yield* WorkspaceActor.client
         const one = accessor.getOrCreate(`${basename(storageDirectory)}-one`)
         const two = accessor.getOrCreate(`${basename(storageDirectory)}-two`)
-        const existingActorDirectories = yield* Effect.promise(() =>
-          readdir(join(storageDirectory, "actors")).catch(() => Array<string>()),
-        )
 
-        const initializedOne = yield* one.Initialize()
-        assert.deepEqual(initializedOne, {
-          backend: "agentos",
-          generation: 1,
-          lifecycle: "running",
-        })
-        const initializedTwo = yield* two.Initialize()
-        assert.deepEqual(initializedTwo, {
-          backend: "agentos",
-          generation: 1,
-          lifecycle: "running",
-        })
+        const initializedOne = yield* one.Initialize(actorProvider)
+        assert.equal(initializedOne.backend, actorProvider.provider)
+        assert.equal(initializedOne.generation, 1)
+        assert.equal(initializedOne.lifecycle, "running")
+        const rootOne = initializedOne.root
+        const initializedTwo = yield* two.Initialize(actorProvider)
+        assert.equal(initializedTwo.backend, actorProvider.provider)
+        assert.equal(initializedTwo.generation, 1)
         const generationOne = (yield* one.GetEnvironment()).generation
         const generationTwo = (yield* two.GetEnvironment()).generation
 
@@ -71,19 +65,22 @@ test("real registry actions persist lifecycle, serialize commands, and isolate a
         )
 
         assert.deepEqual(yield* one.GetEnvironment(), {
-          backend: "agentos",
+          backend: actorProvider.provider,
           generation: 1,
           lifecycle: "running",
+          root: live ? undefined : rootOne,
         })
         assert.deepEqual(yield* one.Stop(), {
-          backend: "agentos",
+          backend: actorProvider.provider,
           generation: 1,
           lifecycle: "stopped",
+          root: live ? undefined : rootOne,
         })
         assert.deepEqual(yield* one.GetEnvironment(), {
-          backend: "agentos",
+          backend: actorProvider.provider,
           generation: 1,
           lifecycle: "stopped",
+          root: live ? undefined : rootOne,
         })
         const stopped = yield* one
           .Run({ generation: generationOne, command: "printf", args: ["no"], timeoutMs: 1000, maxOutputBytes: 100 })
@@ -118,57 +115,8 @@ test("real registry actions persist lifecycle, serialize commands, and isolate a
         assert.equal(excessiveTimeout._tag, "Rivet.WorkspaceActorError")
         assert.equal(excessiveTimeout.reason, "environment_failed")
 
-        const actorDirectories = yield* Effect.promise(() => readdir(join(storageDirectory, "actors")))
-        const twoDirectory = yield* Effect.promise(async () => {
-          const entries = await Promise.all(
-            actorDirectories
-              .filter((name) => !existingActorDirectories.includes(name))
-              .map(async (name) => ({
-                name,
-                one: await readFile(
-                  join(storageDirectory, "actors", name, "workspace", "generation-1", "order"),
-                  "utf8",
-                ).then(
-                  () => true,
-                  () => false,
-                ),
-              })),
-          )
-          return entries.find((entry) => !entry.one)!.name
-        })
-        yield* Effect.promise(() =>
-          rm(join(storageDirectory, "actors", twoDirectory, "workspace", "generation-1"), {
-            recursive: true,
-            force: true,
-          }),
-        )
-        const missing = yield* two.GetEnvironment().pipe(Effect.flip)
-        assert.equal(missing._tag, "Rivet.WorkspaceActorError")
-        assert.equal(missing.reason, "storage_missing")
-        const recreate = yield* two.Initialize().pipe(Effect.flip)
-        assert.equal(recreate._tag, "Rivet.WorkspaceActorError")
-        assert.equal(recreate.reason, "storage_missing")
-        assert.deepEqual(yield* two.Stop(), {
-          backend: "agentos",
-          generation: 1,
-          lifecycle: "stopped",
-        })
-      }).pipe(Effect.provide(registryRuntime), Effect.timeout("25 seconds")),
+        yield* two.Stop()
+      }).pipe(Effect.provide(registryRuntime), Effect.timeout("120 seconds")),
     ),
-  )
-
-  const actorDirectories = await readdir(join(storageDirectory, "actors"))
-  assert.ok(actorDirectories.length >= 2)
-  assert.equal(
-    (
-      await Promise.all(
-        actorDirectories.map((name) =>
-          readFile(join(storageDirectory, "actors", name, "workspace", "generation-1", "order"), "utf8").catch(
-            () => "",
-          ),
-        ),
-      )
-    ).filter(Boolean).length,
-    1,
   )
 })

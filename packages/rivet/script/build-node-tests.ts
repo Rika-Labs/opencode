@@ -18,7 +18,7 @@ const result = await Bun.build({
   format: "esm",
   naming: { entry: "[name].[ext]" },
   loader: { ".txt": "text" },
-  external: ["rivetkit", "@rivetkit/*", "@rikalabs/agentos-core", "@rikalabs/agentos-runtime-core"],
+  external: ["rivetkit", "@rivetkit/*"],
   plugins: [
     {
       name: "jsonc-parser-esm",
