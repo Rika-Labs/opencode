@@ -575,7 +575,7 @@ describe("AppHost.inline", () => {
       ).rejects.toThrow("cross-origin")
     } finally {
       if (previous) Object.defineProperty(globalThis, "location", previous)
-      else Reflect.deleteProperty(globalThis, "location")
+      else delete (globalThis as { location?: unknown }).location
     }
   })
 
