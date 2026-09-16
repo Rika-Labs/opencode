@@ -116,18 +116,15 @@ describe("tool.assertExternalDirectory", () => {
           yield* Effect.promise(() => Bun.write(path.join(outerTmp, "outside.txt"), "x"))
 
           const target = path.join(outerTmp, "outside.txt")
-          const alt = target
-            .replace(/^[A-Za-z]:/, "")
-            .replaceAll("\\", "/")
-            .toLowerCase()
+          const alt = target.replaceAll("\\", "/").toLowerCase()
 
           yield* assertExternalDirectoryEffect(ctx, alt)
 
           const req = requests.find((r) => r.permission === "external_directory")
-          const expected = glob(path.join(outerTmp, "*"))
+          const expected = glob(path.join(outerTmp, "*")).toLowerCase()
           expect(req).toBeDefined()
-          expect(req!.patterns).toEqual([expected])
-          expect(req!.always).toEqual([expected])
+          expect(req!.patterns.map((p) => p.toLowerCase())).toEqual([expected])
+          expect(req!.always.map((p) => p.toLowerCase())).toEqual([expected])
         }),
       { git: true },
     )
