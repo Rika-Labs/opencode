@@ -16,11 +16,6 @@ on:
         options:
           - latest
           - next
-      unpublish_old:
-        description: "Unpublish leftover 1.18 @rikalabs/* embed packages"
-        required: false
-        default: false
-        type: boolean
 
 concurrency:
   group: publish-libs
@@ -28,6 +23,7 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   publish:
@@ -52,6 +48,4 @@ jobs:
         run: bun ./script/publish-rikalabs.ts
 
       - name: Publish @rikalabs/opencode
-        run: bun ./script/publish-rikalabs.ts --publish ${{ inputs.unpublish_old && '--unpublish-old' || '' }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: bun ./script/publish-rikalabs.ts --publish

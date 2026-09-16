@@ -42,11 +42,13 @@ After a protocol merge, run `bun run generate` from `packages/client`. After dep
 
 ### Publish
 
+Publish from GitHub Actions only. `.github/workflows/publish-libs.yml` uses npm trusted publishing (OIDC). Do not set `NODE_AUTH_TOKEN` or `NPM_TOKEN` on the publish job. The trusted publisher on npmjs.com must be GitHub Actions, org `Rika-Labs`, repo `opencode`, workflow filename `publish-libs.yml`.
+
 ```sh
-OPENCODE_VERSION=2.0.X-rika.N OPENCODE_CHANNEL=latest bun ./script/publish-rikalabs.ts --publish
+OPENCODE_VERSION=2.0.X-rika.N OPENCODE_CHANNEL=latest bun ./script/publish-rikalabs.ts
 ```
 
-Or dispatch `.github/workflows/publish-libs.yml` with that version. The script packs `dist/rikalabs-opencode` as `@rikalabs/opencode` and remaps `@opencode/*` imports into the tarball. Pass `--unpublish-old` only when leftover 1.18 `@rikalabs/*` packages must be removed. The umbrella has no `opencode` bin; CLI is the `./cli` subpath only.
+That only packs `dist/rikalabs-opencode`. Dispatch the workflow to publish. The tarball remaps `@opencode/*` imports. The umbrella has no `opencode` bin; CLI is the `./cli` subpath only. Unpublish leftover packages locally with interactive 2FA, never from CI.
 
 ## Live V2 TUI Testing
 

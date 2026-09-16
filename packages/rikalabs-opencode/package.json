@@ -5,6 +5,10 @@
   "private": true,
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rika-Labs/opencode.git"
+  },
   "publishConfig": {
     "access": "public"
   },

@@ -24,24 +24,6 @@ const internals = [
   "apps-host",
 ]
 
-const oldPackages = [
-  "@rikalabs/schema",
-  "@rikalabs/protocol",
-  "@rikalabs/sdk",
-  "@rikalabs/sdk-next",
-  "@rikalabs/plugin",
-  "@rikalabs/http-recorder",
-  "@rikalabs/httpapi-codegen",
-  "@rikalabs/llm",
-  "@rikalabs/effect-sqlite-node",
-  "@rikalabs/effect-drizzle-sqlite",
-  "@rikalabs/core",
-  "@rikalabs/server",
-  "@rikalabs/client",
-  "@rikalabs/rivet",
-  "@rikalabs/apps-host",
-]
-
 await rm(dest, { recursive: true, force: true })
 await mkdir(join(dest, "src"), { recursive: true })
 
@@ -78,6 +60,10 @@ const pkg = {
   version,
   type: "module",
   license: "MIT",
+  repository: {
+    type: "git",
+    url: "git+https://github.com/Rika-Labs/opencode.git",
+  },
   publishConfig: { access: "public" },
   exports: {
     "./sdk": "./src/sdk.ts",
@@ -143,11 +129,6 @@ if (!publish) {
   process.exit(0)
 }
 
-if (!process.env.NODE_AUTH_TOKEN) {
-  console.error("NODE_AUTH_TOKEN is required to publish")
-  process.exit(1)
-}
-
 const already = (text: string) =>
   text.includes("cannot publish over the previously published versions") ||
   text.includes("You cannot publish over the previously published versions")
@@ -156,15 +137,6 @@ const result = await $`npm publish --access public --tag ${channel}`.cwd(dest).n
 if (result.exitCode !== 0 && !already(result.stderr.toString() + result.stdout.toString())) {
   console.error(result.stderr.toString())
   process.exit(result.exitCode)
-}
-
-if (process.argv.includes("--unpublish-old")) {
-  for (const name of oldPackages) {
-    const view = await $`npm view ${name} versions --json`.nothrow()
-    if (view.exitCode !== 0) continue
-    await $`npm unpublish ${name} --force`.nothrow()
-    console.log(`unpublished ${name}`)
-  }
 }
 
 console.log(`published ${pkg.name}@${version}`)
