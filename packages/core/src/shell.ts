@@ -259,8 +259,10 @@ const layer = () =>
           cwd: input.cwd ?? location.directory,
           timeout: input.timeout ?? 0,
           shell: input.shell ?? (yield* shell.resolve({ priority: "config" })),
+          // A workspace command runs on the remote host, so the runner's own
+          // environment - credentials included - must never be shipped to it.
           env: {
-            ...(sessionEnvironment ?? process.env),
+            ...(sessionEnvironment ?? (location.workspaceID === undefined ? process.env : {})),
             TERM: "xterm-256color",
             OPENCODE_TERMINAL: "1",
           },
@@ -295,6 +297,7 @@ const layer = () =>
                   ChildProcess.make(invocation.shell, args, {
                     cwd: invocation.cwd,
                     env: invocation.env,
+                    extendEnv: true,
                     stdin: "ignore",
                     detached: process.platform !== "win32",
                     forceKillAfter: Duration.seconds(3),
