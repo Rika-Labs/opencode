@@ -18,7 +18,7 @@
     "@opencode/util": "workspace:*",
     "@rivetkit/effect": "2.3.17",
     "effect": "catalog:",
-    "effect-sandbox": "file:../../../effect-sandbox",
+    "effect-sandbox": "0.2.0",
     "rivetkit": "2.3.17"
   },
   "devDependencies": {
