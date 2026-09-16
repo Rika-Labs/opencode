@@ -14,7 +14,7 @@ export type Release = App.Release
 export const ReleaseID = App.ReleaseID
 export type ReleaseID = App.ReleaseID
 
-export class Error extends Schema.TaggedErrorClass<Error>()("AppHost.Error", {
+export class Error extends Schema.TaggedError<Error>()("AppHost.Error", {
   operation: Schema.Literals(["publish", "url", "retire"]),
   message: Schema.String,
   cause: Schema.optional(Schema.Defect()),
