@@ -6,8 +6,7 @@
     "outDir": "dist",
     "declaration": false,
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "noUncheckedIndexedAccess": false,
-    "paths": { "@rivetkit/effect": ["./node_modules/@rivetkit/effect/dist/mod.d.ts"] }
+    "noUncheckedIndexedAccess": false
   },
   "include": ["src"]
 }

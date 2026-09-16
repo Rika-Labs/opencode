@@ -1128,6 +1128,7 @@
     "protobufjs",
   ],
   "patchedDependencies": {
+    "@rivetkit/effect@2.3.17": "patches/@rivetkit%2Feffect@2.3.17.patch",
     "@pierre/trees@1.0.0-beta.4": "patches/@pierre%2Ftrees@1.0.0-beta.4.patch",
     "@tanstack/virtual-core@3.17.8": "patches/@tanstack%2Fvirtual-core@3.17.8.patch",
     "ghostty-web@github:anomalyco/ghostty-web#83c0a07": "patches/ghostty-web@0.3.0.patch",
