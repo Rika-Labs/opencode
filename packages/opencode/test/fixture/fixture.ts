@@ -1,6 +1,7 @@
 import { $ } from "bun"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import * as fs from "fs/promises"
+import { realpathSync } from "fs"
 import os from "os"
 import path from "path"
 import { Effect, Context, Layer } from "effect"
@@ -101,7 +102,7 @@ export async function tmpdir<T>(options?: TmpDirOptions<T>) {
       }),
     )
   }
-  const realpath = sanitizePath(await fs.realpath(dirpath))
+  const realpath = sanitizePath(realpathSync.native(dirpath))
   const extra = await options?.init?.(realpath)
   const result = {
     [Symbol.asyncDispose]: async () => {
@@ -128,7 +129,7 @@ export function tmpdirScoped<E = never, R = never>(options?: {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const dirpath = sanitizePath(path.join(os.tmpdir(), "opencode-test-" + Math.random().toString(36).slice(2)))
     yield* Effect.promise(() => fs.mkdir(dirpath, { recursive: true }))
-    const dir = sanitizePath(yield* Effect.promise(() => fs.realpath(dirpath)))
+    const dir = sanitizePath(yield* Effect.sync(() => realpathSync.native(dirpath)))
 
     yield* Effect.addFinalizer(() =>
       Effect.promise(async () => {
