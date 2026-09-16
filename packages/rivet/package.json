@@ -14,10 +14,11 @@
   "dependencies": {
     "@opencode/core": "workspace:*",
     "@opencode/schema": "workspace:*",
+    "@opencode/sdk": "workspace:*",
     "@opencode/util": "workspace:*",
     "@rivetkit/effect": "2.3.17",
     "effect": "catalog:",
-    "effect-sandbox": "0.1.0",
+    "effect-sandbox": "file:../../../effect-sandbox",
     "rivetkit": "2.3.17"
   },
   "devDependencies": {
