@@ -79,7 +79,7 @@ describe("Config", () => {
   it.effect("migrates arbitrary v1 configuration into valid v2 configuration", () =>
     Effect.sync(() => {
       FastCheck.assert(
-        FastCheck.property(Schema.toArbitrary(ConfigV1.Info), (info) => {
+        FastCheck.property(Schema.toArbitrary(ConfigV1.Info)(FastCheck), (info) => {
           Schema.decodeUnknownSync(Config.Info)(ConfigMigrateV1.migrate(info), { errors: "all" })
         }),
         { numRuns: 100 },

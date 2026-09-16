@@ -16,11 +16,11 @@ import {
 import { it } from "./effect"
 import { Api as FixtureApi, Missing } from "./fixture"
 
-function api(endpoint: HttpApiEndpoint.Any) {
+function api(endpoint: HttpApiEndpoint.Constraint) {
   return HttpApi.make("test").add(HttpApiGroup.make("session").add(endpoint))
 }
 
-function compile<Id extends string, Groups extends HttpApiGroup.Any>(source: HttpApi.HttpApi<Id, Groups>) {
+function compile<Id extends string, Groups extends HttpApiGroup.Constraint>(source: HttpApi.HttpApi<Id, Groups>) {
   return emitEffect(compileContract(source))
 }
 

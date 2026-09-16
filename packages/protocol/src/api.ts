@@ -26,7 +26,7 @@ import { ProjectCopyGroup } from "./groups/project-copy"
 
 // Protocol owns middleware placement, while Server injects concrete keys so Core service identities stay downstream.
 const makeApiFromGroup = <
-  const Group extends HttpApiGroup.Any,
+  const Group extends HttpApiGroup.Constraint,
   LocationId extends HttpApiMiddleware.AnyId,
   LocationService,
   SessionLocationId extends HttpApiMiddleware.AnyId,

@@ -1,24 +1,190 @@
-diff --git a/dist/Schema.d.ts b/dist/Schema.d.ts
-index 1111111111111111111111111111111111111111..2222222222222222222222222222222222222222 100644
---- a/dist/Schema.d.ts
-+++ b/dist/Schema.d.ts
-@@ -9964,6 +9964,7 @@ export declare const TaggedError: {
-         } & S["fields"]>>, Cause_.YieldableError & Brand>;
-     };
- };
-+export declare const TaggedErrorClass: typeof TaggedError;
- /**
-  * Represents a function that builds a fast-check `Arbitrary<T>` from the
-  * `fast-check` module.
 diff --git a/dist/Schema.js b/dist/Schema.js
-index 3333333333333333333333333333333333333333..4444444444444444444444444444444444444444 100644
+index 821ee3a..19e7b2d 100644
 --- a/dist/Schema.js
 +++ b/dist/Schema.js
-@@ -9424,6 +9424,7 @@ export const TaggedError = identifier => {
+@@ -9424,6 +9424,8 @@ export const TaggedError = identifier => {
      return Error(identifier ?? tagValue)(struct, annotations);
    };
  };
 +export const TaggedErrorClass = TaggedError;
++export const ErrorClass = Error;
  /**
   * Returns an {@link Arbitrary} factory derived from a schema. The generated
   * values satisfy the schema and use its decoded `Type`.
+diff --git a/dist/Schema.d.ts b/dist/Schema.d.ts
+index 408b7a0..a6b32d4 100644
+--- a/dist/Schema.d.ts
++++ b/dist/Schema.d.ts
+@@ -9964,6 +9964,8 @@ export declare const TaggedError: {
+         } & S["fields"]>>, Cause_.YieldableError & Brand>;
+     };
+ };
++export declare const TaggedErrorClass: typeof TaggedError;
++export declare const ErrorClass: typeof Error;
+ /**
+  * Represents a function that builds a fast-check `Arbitrary<T>` from the
+  * `fast-check` module.
+diff --git a/dist/unstable/httpapi/HttpApiEndpoint.d.ts b/dist/unstable/httpapi/HttpApiEndpoint.d.ts
+index e95cfc4..82bc5b6 100644
+--- a/dist/unstable/httpapi/HttpApiEndpoint.d.ts
++++ b/dist/unstable/httpapi/HttpApiEndpoint.d.ts
+@@ -464,7 +464,7 @@ export type AddMiddleware<Endpoint, M extends HttpApiMiddleware.AnyId> = Endpoin
+  * @category utility types
+  * @since 4.0.0
+  */
+-export type ParamsConstraint = Record<string, Schema.Encoder<string | undefined, unknown>> | Schema.Encoder<Record<string, string | undefined>, unknown>;
++export type ParamsConstraint = Record<string, Schema.Constraint> | Schema.Constraint;
+ /**
+  * Constraint for header schemas: each header must encode to `string | undefined`,
+  * or the schema must encode to a record of those values.
+@@ -472,7 +472,7 @@ export type ParamsConstraint = Record<string, Schema.Encoder<string | undefined,
+  * @category utility types
+  * @since 4.0.0
+  */
+-export type HeadersConstraint = Record<string, Schema.Encoder<string | undefined, unknown>> | Schema.Encoder<Record<string, string | undefined>, unknown>;
++export type HeadersConstraint = Record<string, Schema.Constraint> | Schema.Constraint;
+ /**
+  * Constraint for query schemas: each field must encode to `string`, an array of
+  * strings, or `undefined`, or the schema must encode to a record of those values.
+@@ -480,7 +480,7 @@ export type HeadersConstraint = Record<string, Schema.Encoder<string | undefined
+  * @category utility types
+  * @since 4.0.0
+  */
+-export type QueryConstraint = Record<string, Schema.Encoder<string | ReadonlyArray<string> | undefined, unknown>> | Schema.Encoder<string | ReadonlyArray<string> | undefined, unknown>;
++export type QueryConstraint = Record<string, Schema.Constraint> | Schema.Constraint;
+ /**
+  * Payload schema depends on the HTTP method:
+  * - for no-body methods, payload is modeled as query params, so each field must
+@@ -492,7 +492,7 @@ export type QueryConstraint = Record<string, Schema.Encoder<string | ReadonlyArr
+  * @category utility types
+  * @since 4.0.0
+  */
+-export type PayloadConstraint<Method extends HttpMethod> = Method extends HttpMethod.NoBody ? Record<string, Schema.Encoder<string | ReadonlyArray<string> | undefined, unknown>> : Schema.Top | ReadonlyArray<Schema.Top>;
++export type PayloadConstraint<Method extends HttpMethod> = Schema.Constraint | ReadonlyArray<Schema.Constraint>;
+ /**
+  * Payload constraint used when automatic codecs are enabled: no-body methods
+  * accept field records for query-style encoding, while body methods accept one or
+@@ -509,7 +509,7 @@ export type PayloadConstraintCodecs<Method extends HttpMethod> = Method extends
+  * @category utility types
+  * @since 4.0.0
+  */
+-export type SuccessConstraint = Schema.Top | ReadonlyArray<Schema.Top>;
++export type SuccessConstraint = Schema.Constraint | ReadonlyArray<Schema.Constraint>;
+ /**
+  * Constraint for error response schemas, allowing either a single schema or a
+  * readonly array of schemas.
+@@ -517,7 +517,7 @@ export type SuccessConstraint = Schema.Top | ReadonlyArray<Schema.Top>;
+  * @category utility types
+  * @since 4.0.0
+  */
+-export type ErrorConstraint = Schema.Top | ReadonlyArray<Schema.Top>;
++export type ErrorConstraint = Schema.Constraint | ReadonlyArray<Schema.Constraint>;
+ type ErrorSchema<S> = S extends HttpApiSchema.WithHeaders<infer Inner, Schema.Top> ? Inner : S;
+ type ErrorNoStream<S extends ErrorConstraint> = [
+     Extract<ErrorSchema<S extends ReadonlyArray<Schema.Constraint> ? S[number] : S>, HttpApiSchema.StreamSchema>
+diff --git a/dist/unstable/httpapi/HttpApiGroup.d.ts b/dist/unstable/httpapi/HttpApiGroup.d.ts
+index 6f502f7..641f0ba 100644
+--- a/dist/unstable/httpapi/HttpApiGroup.d.ts
++++ b/dist/unstable/httpapi/HttpApiGroup.d.ts
+@@ -153,6 +153,7 @@ export interface Constraint {
+  */
+ export interface Top extends HttpApiGroup<string, HttpApiEndpoint.Top, boolean> {
+ }
++export type Any = Constraint;
+ /**
+  * Selects the group with the specified identifier from a union of groups.
+  *
+diff --git a/src/Schema.ts b/src/Schema.ts
+index aa5fcd1..4d3008b 100644
+--- a/src/Schema.ts
++++ b/src/Schema.ts
+@@ -15327,6 +15327,9 @@ export const TaggedError: {
+   }
+ }
+ 
++export const TaggedErrorClass = TaggedError
++export const ErrorClass = Error
++
+ // -----------------------------------------------------------------------------
+ // Arbitrary
+ // -----------------------------------------------------------------------------
+diff --git a/src/unstable/httpapi/HttpApiEndpoint.ts b/src/unstable/httpapi/HttpApiEndpoint.ts
+index 331b4ff..6a239fc 100644
+--- a/src/unstable/httpapi/HttpApiEndpoint.ts
++++ b/src/unstable/httpapi/HttpApiEndpoint.ts
+@@ -885,9 +885,7 @@ function makeProto<
+  * @category utility types
+  * @since 4.0.0
+  */
+-export type ParamsConstraint =
+-  | Record<string, Schema.Encoder<string | undefined, unknown>>
+-  | Schema.Encoder<Record<string, string | undefined>, unknown>
++export type ParamsConstraint = Record<string, Schema.Constraint> | Schema.Constraint
+ 
+ /**
+  * Constraint for header schemas: each header must encode to `string | undefined`,
+@@ -896,9 +894,7 @@ export type ParamsConstraint =
+  * @category utility types
+  * @since 4.0.0
+  */
+-export type HeadersConstraint =
+-  | Record<string, Schema.Encoder<string | undefined, unknown>>
+-  | Schema.Encoder<Record<string, string | undefined>, unknown>
++export type HeadersConstraint = Record<string, Schema.Constraint> | Schema.Constraint
+ 
+ /**
+  * Constraint for query schemas: each field must encode to `string`, an array of
+@@ -907,9 +903,7 @@ export type HeadersConstraint =
+  * @category utility types
+  * @since 4.0.0
+  */
+-export type QueryConstraint =
+-  | Record<string, Schema.Encoder<string | ReadonlyArray<string> | undefined, unknown>>
+-  | Schema.Encoder<string | ReadonlyArray<string> | undefined, unknown>
++export type QueryConstraint = Record<string, Schema.Constraint> | Schema.Constraint
+ 
+ /**
+  * Payload schema depends on the HTTP method:
+@@ -922,11 +916,7 @@ export type QueryConstraint =
+  * @category utility types
+  * @since 4.0.0
+  */
+-export type PayloadConstraint<Method extends HttpMethod> = Method extends HttpMethod.NoBody ? Record<
+-    string,
+-    Schema.Encoder<string | ReadonlyArray<string> | undefined, unknown>
+-  > :
+-  Schema.Top | ReadonlyArray<Schema.Top>
++export type PayloadConstraint<Method extends HttpMethod> = Schema.Constraint | ReadonlyArray<Schema.Constraint>
+ 
+ /**
+  * Payload constraint used when automatic codecs are enabled: no-body methods
+@@ -947,7 +937,7 @@ export type PayloadConstraintCodecs<Method extends HttpMethod> = Method extends
+  * @category utility types
+  * @since 4.0.0
+  */
+-export type SuccessConstraint = Schema.Top | ReadonlyArray<Schema.Top>
++export type SuccessConstraint = Schema.Constraint | ReadonlyArray<Schema.Constraint>
+ 
+ /**
+  * Constraint for error response schemas, allowing either a single schema or a
+@@ -956,7 +946,7 @@ export type SuccessConstraint = Schema.Top | ReadonlyArray<Schema.Top>
+  * @category utility types
+  * @since 4.0.0
+  */
+-export type ErrorConstraint = Schema.Top | ReadonlyArray<Schema.Top>
++export type ErrorConstraint = Schema.Constraint | ReadonlyArray<Schema.Constraint>
+ 
+ type ErrorSchema<S> = S extends HttpApiSchema.WithHeaders<infer Inner, Schema.Top> ? Inner : S
+ 
+diff --git a/src/unstable/httpapi/HttpApiGroup.ts b/src/unstable/httpapi/HttpApiGroup.ts
+index 66feb74..050c458 100644
+--- a/src/unstable/httpapi/HttpApiGroup.ts
++++ b/src/unstable/httpapi/HttpApiGroup.ts
+@@ -183,6 +183,7 @@ export interface Constraint {
+  * @since 4.0.0
+  */
+ export interface Top extends HttpApiGroup<string, HttpApiEndpoint.Top, boolean> {}
++export type Any = Constraint
+ 
+ /**
+  * Selects the group with the specified identifier from a union of groups.

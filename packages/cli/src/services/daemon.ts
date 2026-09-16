@@ -94,7 +94,7 @@ export const layer = Layer.effect(
 
       yield* signal(info.pid, "SIGTERM")
       const stopped = yield* awaitStopped(info.pid).pipe(
-        Effect.retry(Schedule.spaced("50 millis").pipe(Schedule.both(Schedule.recurs(100)))),
+        Effect.retry(Schedule.spaced("50 millis").pipe(Schedule.upTo({ times: 100 }))),
         Effect.option,
       )
       if (Option.isSome(stopped)) return
@@ -103,7 +103,7 @@ export const layer = Layer.effect(
       if (Option.isNone(latest) || !sameRegistration(latest.value, info)) return
       yield* signal(info.pid, "SIGKILL")
       yield* awaitStopped(info.pid).pipe(
-        Effect.retry(Schedule.spaced("50 millis").pipe(Schedule.both(Schedule.recurs(100)))),
+        Effect.retry(Schedule.spaced("50 millis").pipe(Schedule.upTo({ times: 100 }))),
       )
     })
 
@@ -128,7 +128,7 @@ export const layer = Layer.effect(
       })
 
       return yield* compatible().pipe(
-        Effect.retry(Schedule.spaced("50 millis").pipe(Schedule.both(Schedule.recurs(100)))),
+        Effect.retry(Schedule.spaced("50 millis").pipe(Schedule.upTo({ times: 100 }))),
         Effect.map((info) => info.url),
         Effect.mapError(() => new Error("Failed to start server")),
       )

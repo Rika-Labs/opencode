@@ -42,16 +42,16 @@ export type Endpoint = {
   readonly group: string
   readonly sourceGroup: string
   readonly topLevel: boolean
-  readonly endpoint: HttpApiEndpoint.AnyWithProps
-  readonly params: Schema.Top | undefined
-  readonly query: Schema.Top | undefined
-  readonly headers: Schema.Top | undefined
-  readonly payloads: ReadonlyArray<Schema.Top>
+  readonly endpoint: HttpApiEndpoint.Top
+  readonly params: Schema.Constraint | undefined
+  readonly query: Schema.Constraint | undefined
+  readonly headers: Schema.Constraint | undefined
+  readonly payloads: ReadonlyArray<Schema.Constraint>
   readonly operation: Operation
   readonly input: ReadonlyArray<InputField & { readonly optional: boolean }>
   readonly unwrapData: boolean
-  readonly errors: ReadonlyArray<{ readonly status: number; readonly schema: Schema.Top }>
-  readonly successes: ReadonlyArray<Schema.Top>
+  readonly errors: ReadonlyArray<{ readonly status: number; readonly schema: Schema.Constraint }>
+  readonly successes: ReadonlyArray<Schema.Constraint>
   readonly effectPortable: boolean
 }
 
@@ -64,7 +64,7 @@ export type Group = {
 
 type Slot = {
   readonly name: string
-  readonly schema: Schema.Top
+  readonly schema: Schema.Constraint
 }
 
 const resolveHttpApiStatus = SchemaAST.resolveAt<number>("httpApiStatus")
@@ -73,7 +73,7 @@ const resolveContentSchema = SchemaAST.resolveAt<SchemaAST.AST>("contentSchema")
 const Manifest = Schema.fromJsonString(Schema.Array(Schema.String))
 const manifestName = ".httpapi-codegen.json"
 
-export function compile<Id extends string, Groups extends HttpApiGroup.Any>(
+export function compile<Id extends string, Groups extends HttpApiGroup.Constraint>(
   api: HttpApi.HttpApi<Id, Groups>,
   options?: {
     readonly groupNames?: Readonly<Record<string, string>>
@@ -123,7 +123,7 @@ export function compile<Id extends string, Groups extends HttpApiGroup.Any>(
         names.add(field.name)
       }
 
-      const schemaPaths: Array<readonly [string, Schema.Top]> = [
+      const schemaPaths: Array<readonly [string, Schema.Constraint]> = [
         ...(params === undefined ? [] : [[`${name}.params`, params.schema] as const]),
         ...(query === undefined ? [] : [[`${name}.query`, query.schema] as const]),
         ...(headers === undefined ? [] : [[`${name}.headers`, headers.schema] as const]),
@@ -423,7 +423,7 @@ function renderPromiseTypes(
   outputTypes?: Readonly<Record<string, { readonly name: string; readonly import: string }>>,
 ) {
   const types = new Map<SchemaAST.AST, string>()
-  const typeOf = (schema: Schema.Top, decoded = false) => {
+  const typeOf = (schema: Schema.Constraint, decoded = false) => {
     const projected = decoded ? Schema.toType(schema) : Schema.toEncoded(schema)
     const cached = types.get(projected.ast)
     if (cached !== undefined) return cached
@@ -553,8 +553,8 @@ function identifierPart(value: string) {
     .join("")
 }
 
-function structuralType(schema: Schema.Top) {
-  const document = SchemaRepresentation.toCodeDocument(SchemaRepresentation.fromASTs([schema.ast]))
+function structuralType(schema: Schema.Constraint) {
+  const document = SchemaRepresentation.toCodeDocument(SchemaRepresentation.toRepresentations([schema.ast]))
   if (
     document.artifacts.some(
       (artifact) =>
@@ -607,9 +607,9 @@ function uniqueModule(base: string, index: number, modules: ReadonlySet<string>)
 }
 
 function normalizeTransport(
-  schema: Schema.Top | undefined,
+  schema: Schema.Constraint | undefined,
   source: InputField["source"] | "success" | "error",
-  endpoint: HttpApiEndpoint.AnyWithProps,
+  endpoint: HttpApiEndpoint.Top,
   operation: string,
 ) {
   if (schema === undefined) return undefined
@@ -617,18 +617,25 @@ function normalizeTransport(
   if (!metadataPortable(schema.ast, new Set())) {
     throw new GenerationError({ reason: `Unportable schema: ${operation}.${source}` })
   }
-  const decoded = Schema.toType(schema)
+  const decoded = schema
   if (!isPathInput(endpoint.path)) {
     throw new GenerationError({ reason: `Invalid endpoint path: ${operation}` })
   }
-  const rebuilt = HttpApiEndpoint.make(endpoint.method)(endpoint.name, endpoint.path, {
-    ...(source === "params" ? { params: decoded } : undefined),
-    ...(source === "query" ? { query: decoded } : undefined),
-    ...(source === "headers" ? { headers: decoded } : undefined),
-    ...(source === "payload" ? { payload: decoded } : undefined),
-    ...(source === "success" ? { success: decoded } : { success: Schema.String }),
-    ...(source === "error" ? { error: decoded } : undefined),
-  })
+  const rebuiltOptions: {
+    disableCodecs: true
+    params?: Schema.Constraint
+    query?: Schema.Constraint
+    headers?: Schema.Constraint
+    payload?: Schema.Constraint
+    success: Schema.Constraint
+    error?: Schema.Constraint
+  } = { disableCodecs: true, success: source === "success" ? decoded : Schema.String }
+  if (source === "params") rebuiltOptions.params = decoded
+  if (source === "query") rebuiltOptions.query = decoded
+  if (source === "headers") rebuiltOptions.headers = decoded
+  if (source === "payload") rebuiltOptions.payload = decoded
+  if (source === "error") rebuiltOptions.error = decoded
+  const rebuilt = HttpApiEndpoint.make(endpoint.method)(endpoint.name, endpoint.path, rebuiltOptions)
   const normalized =
     source === "params"
       ? rebuilt.params
@@ -768,7 +775,7 @@ function isSafeOutputPath(path: string) {
   return path !== manifestName && !isAbsolute(path) && path !== "." && path !== ".." && !/[\\/]/.test(path)
 }
 
-export function generate<Id extends string, Groups extends HttpApiGroup.Any>(
+export function generate<Id extends string, Groups extends HttpApiGroup.Constraint>(
   api: HttpApi.HttpApi<Id, Groups>,
   options: { readonly directory: string },
 ): Effect.Effect<void, GenerationError | PlatformError.PlatformError, FileSystem.FileSystem> {
@@ -778,7 +785,7 @@ export function generate<Id extends string, Groups extends HttpApiGroup.Any>(
   }).pipe(Effect.flatMap((output) => write(output, options.directory)))
 }
 
-function inputFields(schema: Schema.Top | undefined, source: InputField["source"], operation: string) {
+function inputFields(schema: Schema.Constraint | undefined, source: InputField["source"], operation: string) {
   if (schema === undefined) return []
   const ast = Schema.toType(schema).ast
   if (!SchemaAST.isObjects(ast) || ast.indexSignatures.length > 0) {
@@ -796,7 +803,7 @@ function inputFields(schema: Schema.Top | undefined, source: InputField["source"
   })
 }
 
-function responseSchemas(schema: Schema.Top, path: string): Array<readonly [string, Schema.Top]> {
+function responseSchemas(schema: Schema.Constraint, path: string): Array<readonly [string, Schema.Constraint]> {
   if (HttpApiSchema.isNoContent(schema.ast)) return []
   if (!isStreamSchema(schema)) return [[path, schema]]
   if (schema._tag === "StreamUint8Array") return []
@@ -807,7 +814,7 @@ function responseSchemas(schema: Schema.Top, path: string): Array<readonly [stri
   ]
 }
 
-function assertPortable(schema: Schema.Top, path: string, portable: Map<SchemaAST.AST, boolean>) {
+function assertPortable(schema: Schema.Constraint, path: string, portable: Map<SchemaAST.AST, boolean>) {
   const visiting = new Set<SchemaAST.AST>()
   const taggedError = taggedErrorFields(schema)
   const visit = (ast: SchemaAST.AST): boolean => {
@@ -937,12 +944,12 @@ function serializable(value: unknown): boolean {
   return Object.values(value).every(serializable)
 }
 
-function taggedErrorFields(schema: Schema.Top) {
+function taggedErrorFields(schema: Schema.Constraint) {
   const fields = declaredErrorFields(schema)
   return fields?.key === "_tag" ? fields : undefined
 }
 
-function declaredErrorFields(schema: Schema.Top) {
+function declaredErrorFields(schema: Schema.Constraint) {
   if (!SchemaAST.isDeclaration(schema.ast) || schema.ast.annotations?.["~effect/Schema/Class"] === undefined) {
     return undefined
   }
@@ -964,7 +971,7 @@ function declaredErrorFields(schema: Schema.Top) {
   }
 }
 
-function isDataEnvelope(schema: Schema.Top) {
+function isDataEnvelope(schema: Schema.Constraint) {
   if (isStreamSchema(schema) || HttpApiSchema.isNoContent(schema.ast)) return false
   const ast = Schema.toType(schema).ast
   return (
@@ -975,7 +982,7 @@ function isDataEnvelope(schema: Schema.Top) {
   )
 }
 
-function isStreamSchema(schema: Schema.Top): schema is HttpApiSchema.StreamSchema {
+function isStreamSchema(schema: Schema.Constraint): schema is HttpApiSchema.StreamSchema {
   return "_tag" in schema && (schema._tag === "StreamSse" || schema._tag === "StreamUint8Array")
 }
 
@@ -999,7 +1006,7 @@ function streamDataAst(ast: SchemaAST.AST) {
   return data
 }
 
-function streamEffectPortable(schema: Schema.Top) {
+function streamEffectPortable(schema: Schema.Constraint) {
   if (!isStreamSchema(schema) || schema._tag === "StreamUint8Array" || schema.sseMode === "events") return true
   const rebuilt = HttpApiSchema.StreamSse({
     data: streamDataSchema(schema),
@@ -1080,14 +1087,14 @@ function renderGroup(group: Group, groupIndex: number) {
     return `HttpApiEndpoint.make(${JSON.stringify(endpoint.method)})(${JSON.stringify(endpoint.name)}, ${JSON.stringify(endpoint.path)}, { ${options.join(", ")} })`
   })
 
-  function addSlot(schema: Schema.Top | undefined, name: string) {
+  function addSlot(schema: Schema.Constraint | undefined, name: string) {
     if (schema === undefined) return undefined
     const slot = { name, schema }
     slots.push(slot)
     return slot
   }
 
-  function renderSuccess(schema: Schema.Top, name: string) {
+  function renderSuccess(schema: Schema.Constraint, name: string) {
     if (!isStreamSchema(schema)) return { source: addSlot(schema, name)!.name }
     const status = resolveHttpApiStatus(schema.ast) ?? 200
     const annotate = status === 200 ? "" : `.pipe(HttpApiSchema.status(${status}))`
@@ -1115,7 +1122,7 @@ function renderGroup(group: Group, groupIndex: number) {
     .join(", ")
   const rawGroup = group.endpoints[0]?.topLevel
     ? `HttpApiClient.Client<typeof Group${groupIndex}>`
-    : `HttpApiClient.Client.Group<typeof Group${groupIndex}, ${JSON.stringify(group.identifier)}, never, never>`
+    : `HttpApiClient.Client.Group<typeof Group${groupIndex}, never, never>`
   const usesStream = group.endpoints.some((item) => item.operation.success === "stream")
   return `// Generated by @opencode-ai/httpapi-codegen. Do not edit.\nimport { Effect, Schema${usesStream ? ", Stream" : ""} } from "effect"\nimport { Sse } from "effect/unstable/encoding"\nimport { HttpClientError } from "effect/unstable/http"\nimport { HttpApiClient, HttpApiEndpoint, HttpApiGroup${usesHttpApiSchema ? ", HttpApiSchema" : ""} } from "effect/unstable/httpapi"\nimport { ClientError } from "./client-error"\n\n${declarations}\n\nexport const Group${groupIndex} = ${groupSource}\n\ntype RawGroup = ${rawGroup}\n\n${adapters.join("\n\n")}\n\nexport const adaptGroup${groupIndex} = (raw: RawGroup) => ({ ${methods} })\n`
 }
@@ -1136,12 +1143,12 @@ function renderSchemas(slots: ReadonlyArray<Slot>) {
   ]
   const [first, ...rest] = expanded
   const document = SchemaRepresentation.toCodeDocument(
-    SchemaRepresentation.fromASTs([first.schema.ast, ...rest.map((slot) => slot.schema.ast)]),
+    SchemaRepresentation.toRepresentations([first.schema.ast, ...rest.map((slot) => slot.schema.ast)]),
   )
   const artifacts = document.artifacts.flatMap((artifact) => {
     if (artifact._tag === "Import") return [artifact.importDeclaration]
-    if (artifact._tag === "Enum") return [artifact.generation.runtime]
-    return [`const ${artifact.identifier} = ${artifact.generation.runtime}`]
+    if (artifact._tag === "Enum") return [artifact.code.runtime]
+    return [`const ${artifact.identifier} = ${artifact.code.runtime}`]
   })
   const references = [
     ...document.references.nonRecursives.map(({ $ref, code }) => `const ${$ref} = ${code.runtime}`),
