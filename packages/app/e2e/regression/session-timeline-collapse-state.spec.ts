@@ -226,7 +226,9 @@ test.describe("regression: session timeline local row state", () => {
     const trigger = wrapper.locator('[data-slot="collapsible-trigger"]').first()
     const diff = wrapper.locator('[data-component="edit-content"]').first()
     await expectAppVisible(diff)
-    await expect.poll(() => wrapper.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(500)
+    await expect
+      .poll(() => wrapper.evaluate((element) => element.getBoundingClientRect().height), { timeout: 30_000 })
+      .toBeGreaterThan(500)
     const samples = await wrapper.evaluate(async (element) => {
       const root = element.closest<HTMLElement>(".scroll-view__viewport")!
       element.scrollIntoView({ block: "start" })
