@@ -1,0 +1,50 @@
+name: publish embed libraries
+run-name: "Publish @rikalabs embed libraries ${{ inputs.version }} (${{ inputs.channel }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Exact npm version, without a v prefix (for example 1.18.30-rika.4)"
+        required: true
+        type: string
+      channel:
+        description: "npm dist-tag"
+        required: true
+        default: next
+        type: choice
+        options:
+          - latest
+          - next
+
+concurrency:
+  group: publish-libs
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.repository_owner == 'Rika-Labs' || github.repository_owner == 'rika-labs'
+    runs-on: ubuntu-24.04
+    env:
+      OPENCODE_VERSION: ${{ inputs.version }}
+      OPENCODE_CHANNEL: ${{ inputs.channel }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - uses: ./.github/actions/setup-bun
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Build remapped embed libraries
+        run: bun ./script/publish-libs.ts
+
+      - name: Publish embed libraries to npm
+        run: bun ./script/publish-libs.ts --publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
