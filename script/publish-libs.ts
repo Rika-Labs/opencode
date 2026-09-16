@@ -131,9 +131,12 @@ if (publish) {
     const result = await $`npm publish --access public --tag ${channel}`.cwd(dest).nothrow()
     const output = `${result.stdout}${result.stderr}`
     if (result.exitCode === 0 || output.includes("cannot publish over the previously published versions")) {
-      const access = await $`npm access public ${name}`.nothrow()
-      if (access.exitCode !== 0 && !`${access.stdout}${access.stderr}`.includes("already")) {
-        console.log(`access public ${name}: ${access.stderr || access.stdout}`)
+      const access = await $`npm access set status=public ${name}`.nothrow()
+      if (access.exitCode !== 0) {
+        const accessOutput = `${access.stdout}${access.stderr}`
+        if (!accessOutput.includes("already") && !accessOutput.includes("Status: public")) {
+          throw new Error(`failed to make ${name} public\n${accessOutput}`)
+        }
       }
       console.log(`${result.exitCode === 0 ? "published" : "already published"} ${name}@${version}`)
       continue
