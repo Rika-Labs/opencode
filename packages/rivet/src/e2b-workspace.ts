@@ -4,22 +4,25 @@ import { WorkspaceDriver } from "@opencode/core/workspace/driver"
 import { Failed, NotFound, WrongKind, type FilesImpl } from "@opencode/core/environment/files"
 import { Context, Effect, Layer, Scope } from "effect"
 import { AdapterKit, LifecyclePolicy, Sandbox, SandboxProvider, SandboxReference } from "effect-sandbox"
+import * as ChildProcessBridge from "effect-sandbox/ChildProcessBridge"
 import { ProcessSignals } from "effect-sandbox/capabilities/ProcessSignals"
 import type { Service } from "effect-sandbox/e2b/E2BClient"
 import type { Config, CreateOptions } from "effect-sandbox/e2b/E2BConfig"
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
-import { E2BProcess } from "./e2b-process"
 
 export interface Client extends SandboxProvider.Driver<CreateOptions, Sandbox.Sandbox | ProcessSignals> {
   readonly config: Service["config"]
   readonly pause: Service["pause"]
 }
 
+export const DEFAULT_ROOT = "/workspace"
+
 export interface Options {
   readonly namespace: string
   readonly template?: string
   readonly timeoutMs?: number
+  readonly root?: string
   /** Serialize across every owner of this namespace, including recovery. Metadata lookup is not atomic allocation. */
   readonly exclusive: <A, E, R>(key: string, effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
 }
@@ -83,12 +86,14 @@ export function make(client: Client, options: Options): WorkspaceDriver.Interfac
       if (!SandboxReference.sameSandbox(reference, lease.binding.sandbox)) return yield* failure("E2B connected to a different sandbox")
       const sandbox = Context.get(lease.bundle.context, Sandbox.Sandbox)
       const signals = Context.get(lease.bundle.context, ProcessSignals)
+      yield* sandbox.files.mkdir(options.root ?? DEFAULT_ROOT, { recursive: true })
       const scope = yield* Scope.Scope
       const active = { value: true }
       yield* Scope.addFinalizer(scope, Effect.sync(() => { active.value = false }))
       const guard = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | WorkspaceDriver.Error, R> =>
         Effect.suspend<A, E | WorkspaceDriver.Error, R>(() => active.value ? effect : failure("E2B connection scope is closed"))
-      return { overrides: files(sandbox, guard), spawner: E2BProcess.make(sandbox, signals, guard) }
+      const spawner = yield* ChildProcessBridge.make({ sandbox, signals })
+      return { overrides: files(sandbox, guard), spawner }
     }).pipe(Effect.mapError((cause) => new WorkspaceDriver.Error({ message: "E2B connection failed", cause }))),
     suspendForIdle: ({ workspaceID, binding }) => exclusive(workspaceID, Effect.gen(function* () {
       yield* client.pause(yield* referenceOf(workspaceID, binding))
@@ -103,7 +108,9 @@ export function make(client: Client, options: Options): WorkspaceDriver.Interfac
 
 const failure = (message: string) => Effect.fail(new WorkspaceDriver.Error({ message }))
 
-function files(sandbox: Sandbox.Service, guard: E2BProcess.Guard): FilesImpl {
+type Guard = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E | WorkspaceDriver.Error, R>
+
+function files(sandbox: Sandbox.Service, guard: Guard): FilesImpl {
   const failed = (path: string) => (cause: unknown) => new Failed({ path, cause })
   const readError = (path: string) => (cause: unknown) =>
     cause instanceof NotFound || cause instanceof Failed ? cause : failed(path)(cause)
