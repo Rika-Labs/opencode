@@ -130,17 +130,22 @@ if (publish) {
     const name = `@rikalabs/${item.name}`
     const result = await $`npm publish --access public --tag ${channel}`.cwd(dest).nothrow()
     const output = `${result.stdout}${result.stderr}`
-    if (result.exitCode === 0 || output.includes("cannot publish over the previously published versions")) {
-      const access = await $`npm access set status=public ${name}`.nothrow()
-      if (access.exitCode !== 0) {
-        const accessOutput = `${access.stdout}${access.stderr}`
-        if (!accessOutput.includes("already") && !accessOutput.includes("Status: public")) {
-          throw new Error(`failed to make ${name} public\n${accessOutput}`)
-        }
+    if (result.exitCode !== 0 && !output.includes("cannot publish over the previously published versions")) {
+      throw new Error(`failed to publish ${name}@${version}\n${output}`)
+    }
+    const probe = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}`)
+    if (!probe.ok) {
+      const unpublished = await $`npm unpublish ${name}@${version} --force`.nothrow()
+      if (unpublished.exitCode !== 0) {
+        throw new Error(`failed to unpublish private ${name}@${version}\n${unpublished.stderr}`)
       }
-      console.log(`${result.exitCode === 0 ? "published" : "already published"} ${name}@${version}`)
+      const republished = await $`npm publish --access public --tag ${channel}`.cwd(dest).nothrow()
+      if (republished.exitCode !== 0) {
+        throw new Error(`failed to republish ${name}@${version} as public\n${republished.stderr}`)
+      }
+      console.log(`republished public ${name}@${version}`)
       continue
     }
-    throw new Error(`failed to publish ${name}@${version}\n${output}`)
+    console.log(`${result.exitCode === 0 ? "published" : "already published"} ${name}@${version}`)
   }
 }
