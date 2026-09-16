@@ -39,6 +39,14 @@ type FilesystemResult =
       }
     }
 
+export function guestPathFromHost(path: string, aliases: readonly string[]) {
+  for (const root of aliases) {
+    if (path === root) return "/workspace"
+    if (path.startsWith(`${root}/`)) return `/workspace/${path.slice(root.length + 1)}`
+  }
+  return path
+}
+
 export function open(workload: Workload.Interface) {
   let pending = Promise.resolve()
   let closed = false
@@ -72,13 +80,7 @@ export function open(workload: Workload.Interface) {
     if (path.startsWith("/workspace/")) return `${workload.root}/${path.slice("/workspace/".length)}`
     return path
   }
-  const fromHost = (path: string) => {
-    for (const root of rootAliases()) {
-      if (path === root) return "/workspace"
-      if (path.startsWith(`${root}/`)) return `/workspace/${path.slice(root.length + 1)}`
-    }
-    return path
-  }
+  const fromHost = (path: string) => guestPathFromHost(path, rootAliases())
   const locate = (input: FilesystemOperation): FilesystemOperation => {
     if (workload.root === undefined) return input
     if (input.type === "move") return { ...input, from: toHost(input.from), to: toHost(input.to) }

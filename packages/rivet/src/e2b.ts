@@ -192,62 +192,11 @@ export class Workload implements Interface {
   }
 
   async run(file: string, options: RunOptions = {}): Promise<RunResult> {
-    if (this.sealed) throw new Error("workload boundary is stopped")
-    if (file.includes("/") && !file.startsWith("/")) throw new Error("workload executable path must be absolute")
-    const sandbox = this.sandbox()
-    const commandOptions: {
-      cwd: string
-      environment: Record<string, string>
-      timeoutMs?: number
-    } = {
-      cwd: options.cwd ?? "/workspace",
-      environment: { ...defaultEnvironment, ...options.env },
-    }
-    if (options.timeoutMs !== undefined) commandOptions.timeoutMs = options.timeoutMs
-    const command = SandboxCommand.make(file, options.args ?? [], commandOptions)
-    const controller = new AbortController()
-    const onAbort = () => {
-      controller.abort()
-    }
-    options.signal?.addEventListener("abort", onAbort, { once: true })
-    this.inflight.add(controller)
-    const aborted = Effect.callback<never>((resume) => {
-      if (controller.signal.aborted) {
-        resume(Effect.interrupt)
-        return
-      }
-      const onInnerAbort = () => resume(Effect.interrupt)
-      controller.signal.addEventListener("abort", onInnerAbort, { once: true })
-      return Effect.sync(() => controller.signal.removeEventListener("abort", onInnerAbort))
-    })
-    const work = Effect.scoped(
-      Effect.gen(function* () {
-        const process = yield* sandbox.spawn(command)
-        const chunks = yield* Stream.runCollect(process.output)
-        const observed = yield* process.awaitResult
-        const outputParts: Array<Uint8Array> = []
-        for (const chunk of chunks) outputParts.push(chunk.bytes)
-        const exitCode = Predicate.isTagged(observed.termination, "Exited") ? observed.termination.code : 137
-        const result: RunResult = {
-          exitCode,
-          stdout: observed.stdout,
-          stderr: observed.stderr,
-          output: concatBytes(outputParts),
-        }
-        return result
-      }),
-    )
-    try {
-      return await runPromise(Effect.raceFirst(work, aborted))
-    } finally {
-      options.signal?.removeEventListener("abort", onAbort)
-      this.inflight.delete(controller)
-    }
+    return this.exec(file, { ...options, onTimeout: "seal" })
   }
 
   async stop() {
-    this.sealed = true
-    for (const controller of this.inflight) controller.abort()
+    await this.sealAndKill()
   }
 
   async exportWorkspace() {
@@ -281,6 +230,7 @@ export class Workload implements Interface {
     if (this.sealed) return { sandboxId: this.sandboxId }
     await this.detachLease()
     await runPromise(this.client.pause(this.reference))
+    await this.closeClient()
     return { sandboxId: this.sandboxId }
   }
 
@@ -301,8 +251,14 @@ export class Workload implements Interface {
     })
     if (request) {
       await runPromise(this.client.destroy(this.reference, request.operationId)).catch((error) => failures.push(error))
+      const probeScope = await runPromise(Scope.make())
+      const probe = await runPromise(
+        Effect.exit(this.client.connect(this.reference).pipe(Effect.provideService(Scope.Scope, probeScope))),
+      )
+      await runPromise(Scope.close(probeScope, Exit.succeed(undefined))).catch(() => undefined)
+      if (Exit.isSuccess(probe)) failures.push(new Error("E2B sandbox still exists after destroy"))
     }
-    await runPromise(Scope.close(this.clientScope, Exit.succeed(undefined))).catch((error) => failures.push(error))
+    await this.closeClient().catch((error) => failures.push(error))
     if (failures.length === 0) {
       await journal?.({ sandboxId: this.sandboxId, state: "deleted" }).catch((error) => failures.push(error))
     }
@@ -333,11 +289,111 @@ export class Workload implements Interface {
     await runPromise(Scope.close(scope, Exit.succeed(undefined)))
   }
 
+  private async closeClient() {
+    await runPromise(Scope.close(this.clientScope, Exit.succeed(undefined)))
+  }
+
+  private async sealAndKill() {
+    this.sealed = true
+    for (const controller of this.inflight) controller.abort()
+    const sealed = this.sealed
+    this.sealed = false
+    try {
+      await this.exec("/bin/sh", {
+        args: ["-c", 'for pid in $(ps -o pid= -u user 2>/dev/null); do kill -9 "$pid" 2>/dev/null || true; done'],
+        cwd: "/",
+        timeoutMs: 15_000,
+        user: "root",
+        bypassSeal: true,
+        onTimeout: "throw",
+      }).catch(() => undefined)
+    } finally {
+      this.sealed = sealed
+    }
+  }
+
+  private async exec(
+    file: string,
+    options: RunOptions & {
+      readonly user?: string
+      readonly bypassSeal?: boolean
+      readonly onTimeout?: "throw" | "seal"
+    } = {},
+  ): Promise<RunResult> {
+    if (!options.bypassSeal && this.sealed) throw new Error("workload boundary is stopped")
+    if (file.includes("/") && !file.startsWith("/")) throw new Error("workload executable path must be absolute")
+    const sandbox = this.sandbox()
+    const timeoutMs = options.timeoutMs ?? 60_000
+    const commandOptions: {
+      cwd: string
+      environment: Record<string, string>
+      timeoutMs: number
+      user?: string
+    } = {
+      cwd: options.cwd ?? "/workspace",
+      environment: { ...defaultEnvironment, ...options.env },
+      timeoutMs,
+    }
+    if (options.user !== undefined) commandOptions.user = options.user
+    const command = SandboxCommand.make(file, options.args ?? [], commandOptions)
+    const controller = new AbortController()
+    let timedOut = false
+    const onAbort = () => {
+      controller.abort()
+    }
+    options.signal?.addEventListener("abort", onAbort, { once: true })
+    const timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, timeoutMs)
+    this.inflight.add(controller)
+    const aborted = Effect.callback<never>((resume) => {
+      if (controller.signal.aborted) {
+        resume(Effect.interrupt)
+        return
+      }
+      const onInnerAbort = () => resume(Effect.interrupt)
+      controller.signal.addEventListener("abort", onInnerAbort, { once: true })
+      return Effect.sync(() => controller.signal.removeEventListener("abort", onInnerAbort))
+    })
+    const work = Effect.scoped(
+      Effect.gen(function* () {
+        const process = yield* sandbox.spawn(command)
+        const chunks = yield* Stream.runCollect(process.output)
+        const observed = yield* process.awaitResult
+        const outputParts: Array<Uint8Array> = []
+        for (const chunk of chunks) outputParts.push(chunk.bytes)
+        const exitCode = Predicate.isTagged(observed.termination, "Exited") ? observed.termination.code : 137
+        const result: RunResult = {
+          exitCode,
+          stdout: observed.stdout,
+          stderr: observed.stderr,
+          output: concatBytes(outputParts),
+        }
+        return result
+      }),
+    )
+    try {
+      return await runPromise(Effect.raceFirst(work, aborted))
+    } catch (error) {
+      if (timedOut && options.signal?.aborted !== true && options.onTimeout === "seal") {
+        await this.sealAndKill()
+        const empty = new Uint8Array()
+        return { exitCode: 124, stdout: empty, stderr: empty, output: empty }
+      }
+      throw error
+    } finally {
+      clearTimeout(timer)
+      options.signal?.removeEventListener("abort", onAbort)
+      this.inflight.delete(controller)
+    }
+  }
+
   private async runTar(args: ReadonlyArray<string>, timeoutMs: number) {
     const sealed = this.sealed
     this.sealed = false
     try {
-      return await this.run("/usr/bin/tar", { args, cwd: "/", timeoutMs })
+      return await this.exec("/usr/bin/tar", { args, cwd: "/", timeoutMs, bypassSeal: true, onTimeout: "throw" })
     } finally {
       this.sealed = sealed
     }

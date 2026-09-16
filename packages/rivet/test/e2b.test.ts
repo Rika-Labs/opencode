@@ -35,9 +35,16 @@ test("E2B workload spawn, abort, rename, pause/reconnect, and stop", { timeout: 
     controller.abort()
     await assert.rejects(hung)
 
-    await workload.stop()
+    await workload.run("/bin/sh", {
+      args: ["-c", "nohup sh -c 'while true; do echo leak >> /workspace/writer.log; sleep 0.2; done' >/dev/null 2>&1 &"],
+      timeoutMs: 5_000,
+    })
     await workload.stop()
     await assert.rejects(workload.run("/bin/true"), /stopped/)
+    const leftover = await workload.guestFiles.readFile("/workspace/writer.log").catch(() => new Uint8Array())
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    const later = await workload.guestFiles.readFile("/workspace/writer.log").catch(() => leftover)
+    assert.equal(Buffer.from(later).toString(), Buffer.from(leftover).toString())
     const archive = await workload.exportWorkspace()
     const directory = await mkdtemp(join(tmpdir(), "opencode-e2b-archive-"))
     try {

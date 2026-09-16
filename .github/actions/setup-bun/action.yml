@@ -53,6 +53,18 @@ runs:
       run: python3 -m pip install setuptools || pip install setuptools || true
       shell: bash
 
+    - name: Checkout effect-sandbox
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        DEST="${GITHUB_WORKSPACE}/../effect-sandbox"
+        if [ ! -d "$DEST/.git" ]; then
+          git clone --depth 1 --branch feat/distilled-deps-e2b-opencode \
+            "https://x-access-token:${GH_TOKEN}@github.com/Rika-Labs/effect-sandbox.git" "$DEST"
+        fi
+        (cd "$DEST" && bun install && bun run build)
+
     - name: Install dependencies
       run: |
         # Workaround for patched peer variants
