@@ -100,6 +100,9 @@ test("actor SQLite backs prompt admission with message-ID idempotency", async ()
         expect(second.id).toBe(first.id)
         const pending = yield* opencode.sessions.inbox.list({ sessionID: session.id })
         expect(pending).toHaveLength(1)
+        const head = pending[0]
+        expect(head.type).toBe("user")
+        if (head.type === "user") expect(head.payload.text).toBe("first admission")
       }),
     ),
   )

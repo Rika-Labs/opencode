@@ -100,17 +100,47 @@ describe("E2BWorkspace", () => {
     expect(f.calls.connected).toBe(0)
   })
 
-  test("scoped filesystem writes preserve bytes and reject use after scope close", async () => {
+  test("connect rejects a binding from another namespace", async () => {
+    const f = fixture()
+    const workspaceID = Workspace.ID.create()
+    const created = await Effect.runPromise(f.driver.create({ workspaceID }))
+    const other = E2BWorkspace.make(f.client, { ...f.options, namespace: "other" })
+    const result = await Effect.runPromiseExit(Effect.scoped(other.connect({
+      workspaceID, binding: created.binding, saveBinding: () => Effect.void,
+    })))
+    expect(Exit.isFailure(result)).toBe(true)
+    expect(f.calls.connected).toBe(0)
+  })
+
+  test("connect rejects provider ownership mismatch", async () => {
+    const f = fixture()
+    const workspaceID = Workspace.ID.create()
+    const created = await Effect.runPromise(f.driver.create({ workspaceID }))
+    const other = E2BWorkspace.make({ ...f.client, config: { account: "other-account" } }, f.options)
+    const result = await Effect.runPromiseExit(Effect.scoped(other.connect({
+      workspaceID, binding: created.binding, saveBinding: () => Effect.void,
+    })))
+    expect(Exit.isFailure(result)).toBe(true)
+    expect(f.calls.connected).toBe(0)
+  })
+
+  test("scoped writes succeed and reject filesystem and spawner use after scope close", async () => {
     const f = fixture()
     const scope = Effect.runSync(Scope.make())
     const environment = await Effect.runPromise(connect(f.driver, Workspace.ID.create()).pipe(
       Effect.provideService(Scope.Scope, scope),
     ))
-    const write = environment.overrides?.write
-    if (!write) throw new Error("Missing remote filesystem override")
-    await Effect.runPromise(write("/workspace/binary", new Uint8Array([0, 255, 128])))
+    const files = environment.overrides
+    if (!files) throw new Error("Missing remote filesystem override")
+    await Effect.runPromise(files.write("/workspace/binary", new Uint8Array([0, 255, 128])))
+    // TestSandbox stat omits mtimeMs, so the driver's completeness check
+    // rejects reads here; byte-exact round-trip is qualified by the live test.
+    expect(Exit.isFailure(await Effect.runPromiseExit(files.read("/workspace/binary")))).toBe(true)
     await Effect.runPromise(Scope.close(scope, Exit.succeed(undefined)))
-    expect(Exit.isFailure(await Effect.runPromiseExit(write("/workspace/closed", new Uint8Array())))).toBe(true)
+    expect(Exit.isFailure(await Effect.runPromiseExit(files.write("/workspace/closed", new Uint8Array())))).toBe(true)
+    expect(Exit.isFailure(
+      await Effect.runPromiseExit(environment.spawner.spawn(ChildProcess.make("echo", ["closed"]))),
+    )).toBe(true)
     expect(f.harness.counters().released).toBe(2)
   })
 
