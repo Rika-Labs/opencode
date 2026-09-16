@@ -4,9 +4,9 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
-    "declaration": true,
+    "declaration": false,
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "noUncheckedIndexedAccess": false
   },
-  "include": ["src"]
+  "include": ["src/sdk.ts", "src/sdk-effect.ts", "src/rivet.ts", "src/apps-host.ts"]
 }

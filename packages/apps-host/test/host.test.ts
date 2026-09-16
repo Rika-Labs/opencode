@@ -10,14 +10,10 @@ type McpReadResourceInput = {
   readonly location?: { readonly directory?: string; readonly workspaceID?: string }
 }
 
-function generatedClient(): Client {
-  return OpenCode.make({ baseUrl: "http://localhost" })
-}
-
 test("generated client type-checks against the AppHost sdk contract", () => {
-  const client = generatedClient() as Client & { mcp: { list?: unknown }; "server.app"?: { ticket?: unknown } }
+  const client = OpenCode.make({ baseUrl: "http://localhost" })
   expect(typeof client.mcp.list).toBe("function")
-  expect(typeof client["server.app"]?.ticket).toBe("function")
+  expect(typeof client["server.app"].ticket).toBe("function")
 })
 
 const PROTOCOL_VERSION = "2026-01-26"

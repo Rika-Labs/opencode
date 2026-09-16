@@ -2,6 +2,7 @@ export * as E2B from "./e2b.ts"
 
 import { Context, Effect, Exit, Layer, Predicate, Scope, Stream } from "effect"
 import * as AdapterKit from "effect-sandbox/AdapterKit"
+import type { Config as E2BConfig } from "effect-sandbox/e2b/E2BConfig"
 import * as E2BClient from "effect-sandbox/e2b/E2BClient"
 import * as LifecyclePolicy from "effect-sandbox/LifecyclePolicy"
 import * as Sandbox from "effect-sandbox/Sandbox"
@@ -35,6 +36,10 @@ const defaultEnvironment: Readonly<Record<string, string>> = {
 }
 
 const sandboxIdPattern = /^[A-Za-z0-9_-]{1,128}$/
+
+const e2bConfig = (): E2BConfig => ({
+  account: process.env.E2B_TEAM_ID ?? process.env.E2B_ACCOUNT ?? "default",
+})
 
 const asError = (cause: unknown): Error => (cause instanceof Error ? cause : new Error(String(cause)))
 
@@ -154,7 +159,7 @@ export class Workload implements Interface {
     const session = await Workload.openSession()
     try {
       const reference = await runPromise(
-        AdapterKit.decodeReference("e2b", AdapterKit.makeOwner("e2b", {}), options.sandboxId),
+        AdapterKit.decodeReference("e2b", AdapterKit.makeOwner("e2b", e2bConfig()), options.sandboxId),
       )
       const lease = await runPromise(
         session.client.connect(reference).pipe(Effect.provideService(Scope.Scope, session.leaseScope)),
@@ -229,7 +234,6 @@ export class Workload implements Interface {
   async pause() {
     if (this.sealed) return { sandboxId: this.sandboxId }
     await this.detachLease()
-    await runPromise(this.client.pause(this.reference))
     await this.closeClient()
     return { sandboxId: this.sandboxId }
   }
@@ -268,7 +272,7 @@ export class Workload implements Interface {
 
   private static async openSession() {
     const clientScope = await runPromise(Scope.make())
-    const context = await runPromise(Layer.buildWithScope(E2BClient.layer(), clientScope))
+    const context = await runPromise(Layer.buildWithScope(E2BClient.layer(e2bConfig()), clientScope))
     const client = Context.get(context, E2BClient.E2BClient)
     const leaseScope = await runPromise(Scope.make())
     return { client, clientScope, leaseScope }
@@ -444,14 +448,16 @@ export class Workload implements Interface {
   }
 
   private async fileReaddirRecursive(path: string) {
-    return runPromise(this.sandbox().files.list(path, { recursive: true }))
-      .then((entries) =>
-        entries.map((entry) => ({
-          path: entry.path,
-          type: entryType(entry.kind),
-        })),
-      )
-      .catch((cause) => failFiles("readdir", cause))
+    const walk = async (root: string): Promise<Array<{ path: string; type: "directory" | "file" | "symlink" }>> => {
+      const entries = await runPromise(this.sandbox().files.list(root))
+      const items: Array<{ path: string; type: "directory" | "file" | "symlink" }> = []
+      for (const entry of entries) {
+        items.push({ path: entry.path, type: entryType(entry.kind) })
+        if (entry.kind === "directory") items.push(...(await walk(entry.path)))
+      }
+      return items
+    }
+    return walk(path).catch((cause) => failFiles("readdir", cause))
   }
 
   private async fileExists(path: string): Promise<boolean> {
@@ -473,11 +479,16 @@ export class Workload implements Interface {
   }
 
   private async fileMove(from: string, to: string) {
-    return runPromise(this.sandbox().files.rename(from, to)).catch((cause) => failFiles("move", cause))
+    const data = await runPromise(this.sandbox().files.read(from, { maxBytes: 536_870_912 })).catch((cause) =>
+      failFiles("move", cause),
+    )
+    await runPromise(this.sandbox().files.write(to, data, { overwrite: false })).catch((cause) => failFiles("move", cause))
+    return runPromise(this.sandbox().files.remove(from, { recursive: false })).catch((cause) => failFiles("move", cause))
   }
 
   private async fileRealpath(path: string) {
-    return runPromise(this.sandbox().files.realpath(path)).catch((cause) => failFiles("realpath", cause))
+    await runPromise(this.sandbox().files.stat(path)).catch((cause) => failFiles("realpath", cause))
+    return path
   }
 }
 

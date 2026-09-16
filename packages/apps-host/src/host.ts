@@ -28,22 +28,57 @@ export type McpCallToolInput = {
   readonly location?: Location
 }
 
+export type ResourceContent = {
+  readonly uri: string
+  readonly mimeType?: string
+  readonly text?: string
+  readonly blob?: string
+  readonly meta?: unknown
+}
+
+export type ResourceInfo = {
+  readonly uri: string
+  readonly name?: string
+  readonly description?: string
+  readonly mimeType?: string
+  readonly meta?: unknown
+}
+
+export type ToolContent =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "image"; readonly data: string; readonly mimeType: string }
+  | { readonly type: "audio"; readonly data: string; readonly mimeType: string }
+  | {
+      readonly type: "resource"
+      readonly resource: ResourceContent
+    }
+
+export type ToolResult = {
+  readonly content: ReadonlyArray<ToolContent>
+  readonly structuredContent?: unknown
+  readonly isError?: boolean
+  readonly meta?: unknown
+}
+
 export type McpCallToolOutput = {
-  readonly data?: unknown
+  readonly data?: ToolResult
 }
 
 export type McpListResourcesOutput = {
-  readonly data?: unknown
+  readonly data?: ReadonlyArray<ResourceInfo>
 }
 
 export type McpReadResourceOutput = {
-  readonly data?: unknown
+  readonly data?: {
+    readonly contents: ReadonlyArray<ResourceContent>
+  }
 }
 
 export type AppsGetOutput = {
   readonly data?: {
     readonly manifest: { readonly id: string; readonly web?: { readonly entry?: string } }
     readonly hasWeb?: boolean
+    readonly mcpServer?: string
   }
 }
 
@@ -60,8 +95,6 @@ export interface Client {
     }>
   }
 }
-
-export type ToolResult = McpCallToolOutput["data"]
 
 export interface HostHooks {
   onLog?: (params: LoggingMessageNotification["params"]) => void
@@ -125,7 +158,7 @@ export async function portal(input: PortalInput): Promise<AppView> {
   const base = input.baseUrl ?? globalThis.location?.origin
   if (!base) throw new Error("baseUrl is required when window.location is unavailable")
   const url = new URL(`/api/app/${encodeURIComponent(input.id)}/web/?ticket=${encodeURIComponent(ticket.data.ticket)}`, base)
-  const view = attach(input.iframe, input, hostBridge(input, input.server ?? info.data.mcpServer ?? input.id), "null")
+  const view = attach(input.iframe, input, hostBridge(input, input.server ?? info.data?.mcpServer ?? input.id), "null")
   input.iframe.setAttribute("sandbox", input.sandbox ?? "allow-scripts allow-forms")
   input.iframe.src = url.toString()
   return view
@@ -135,7 +168,7 @@ export async function inline(input: InlineInput): Promise<AppView> {
   const resource = (
     await input.sdk.mcp.readResource({ server: input.server, uri: input.resourceUri, location: input.location })
   ).data
-  const content = resource.contents.find((item) => typeof item.text === "string")
+  const content = resource?.contents.find((item) => typeof item.text === "string")
   if (!content?.text) throw new Error(`resource ${input.resourceUri} has no text content`)
   const html = content.text
   const meta = uiMeta(content.meta)
@@ -237,20 +270,20 @@ function hostBridge(options: HostOptions, server: string): AppBridge {
         await options.sdk.mcp.callTool({
           server,
           name: params.name,
-          arguments: params.arguments === undefined ? undefined : json(params.arguments),
+          arguments: record(params.arguments),
           location: options.location,
         })
       ).data,
     )
   bridge.onreadresource = async (params) => ({
-    contents: (await options.sdk.mcp.readResource({ server, uri: params.uri, location: options.location })).data.contents.map(
+    contents: ((await options.sdk.mcp.readResource({ server, uri: params.uri, location: options.location })).data?.contents ?? []).map(
       resourceContent,
     ),
   })
   bridge.onlistresources = async () => ({
-    resources: (await options.sdk.mcp.listResources({ server, location: options.location })).data.map((item) => ({
+    resources: ((await options.sdk.mcp.listResources({ server, location: options.location })).data ?? []).map((item) => ({
       uri: item.uri,
-      name: item.name,
+      name: item.name ?? item.uri,
       description: item.description,
       mimeType: item.mimeType,
       _meta: record(item.meta),
@@ -284,19 +317,15 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value as Record<string, unknown>
 }
 
-function json(value: unknown): JsonValue {
-  return value as JsonValue
-}
-
-function resourceContent(item: McpReadResourceOutput["data"]["contents"][number]) {
+function resourceContent(item: ResourceContent) {
   const base = { uri: item.uri, mimeType: item.mimeType, _meta: record(item.meta) }
   if (item.text !== undefined) return { ...base, text: item.text }
   return { ...base, blob: item.blob ?? "" }
 }
 
-function callResult(result: ToolResult): CallToolResult {
+function callResult(result: ToolResult | undefined): CallToolResult {
   return {
-    content: result.content.map((item) => {
+    content: (result?.content ?? []).map((item) => {
       if (item.type === "resource") {
         const resource = {
           uri: item.resource.uri,
@@ -313,8 +342,8 @@ function callResult(result: ToolResult): CallToolResult {
       }
       return item
     }),
-    structuredContent: record(result.structuredContent),
-    isError: result.isError,
-    _meta: record(result.meta),
+    structuredContent: record(result?.structuredContent),
+    isError: result?.isError,
+    _meta: record(result?.meta),
   }
 }

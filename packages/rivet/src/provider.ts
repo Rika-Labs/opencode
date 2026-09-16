@@ -98,13 +98,12 @@ export function make(client: Client.Client, backend: Backend): WorkspaceDriver.I
   }
 
   const bindingOf = (environment: { readonly generation: number; readonly backend: string; readonly root?: string }, sandboxID?: string) => {
-    const binding: WorkspaceDriver.Binding = {
+    return {
       generation: environment.generation,
       backend: environment.backend,
       root: environment.root ?? "/workspace",
+      ...(sandboxID ? { sandboxID } : {}),
     }
-    if (sandboxID) binding.sandboxID = sandboxID
-    return binding
   }
 
   return WorkspaceDriver.make({
