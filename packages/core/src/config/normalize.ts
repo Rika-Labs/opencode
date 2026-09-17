@@ -222,6 +222,9 @@ export function normalize(input: unknown): Result {
   const instructions = decodeList(input.instructions, Schema.String, ["instructions"], diagnostics, decodeEncoded)
   if (instructions.length || Array.isArray(input.instructions)) encoded.instructions = instructions
 
+  const apps = decodeList(input.apps, Schema.String, ["apps"], diagnostics, decodeEncoded)
+  if (apps.length || Array.isArray(input.apps)) encoded.apps = apps
+
   return { type: "normalized", encoded, diagnostics }
 }
 
