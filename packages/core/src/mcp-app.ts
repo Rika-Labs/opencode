@@ -154,7 +154,7 @@ const layer = Layer.effect(
     const load = Effect.fn("AppV2.load")(function* (record: SourceRecord) {
       const content = yield* fs
         .readFileStringSafe(path.join(record.directory, "app.json"))
-        .pipe(Effect.catch(() => Effect.succeed(undefined)))
+        .pipe(Effect.orElseSucceed(() => undefined))
       if (content === undefined) return { ...record, error: "missing or unreadable app.json" } satisfies Loaded
       const manifest = decodeManifest(content).valueOrUndefined
       if (!manifest) {
