@@ -9,7 +9,7 @@ import type { ModelsDev } from "@opencode/core/models-dev"
 import { Pty } from "@opencode/core/pty"
 import { Snapshot } from "@opencode/core/snapshot"
 import { Vcs } from "@opencode/core/vcs"
-import type { WorkspaceDriver } from "@opencode/core/workspace/driver"
+import { WorkspaceDriver } from "@opencode/core/workspace/driver"
 import { OpenCode } from "@opencode/sdk/effect"
 import { CrossSpawnSpawner } from "@opencode/util/cross-spawn-spawner"
 import type { LayerNode } from "@opencode/util/effect/layer-node"
@@ -96,6 +96,11 @@ export interface ActorClient extends RawAccess {
   readonly opencode: PromiseSdk.Interface
 }
 
+export interface DatabaseOptions extends Omit<Options, "storage"> {
+  /** Pre-built drivers; PromiseSdk strips workspaceProviders, so they arrive as an override. */
+  readonly workspaceProviders?: Readonly<Record<string, WorkspaceDriver.Interface>>
+}
+
 /**
  * Native actor database provider, rebuilt by Rivet on each wake. Qualified on
  * NAPI sqlite: "local" with Core's `workerd` condition (pragma guards/stubs).
@@ -104,7 +109,8 @@ export interface ActorClient extends RawAccess {
  * The relative Promise SDK import is a repository seam; it needs a package
  * export before this provider can be published.
  */
-export function database(options: Omit<Options, "storage"> = {}): DatabaseProvider<ActorClient> {
+export function database(options: DatabaseOptions = {}): DatabaseProvider<ActorClient> {
+  const { workspaceProviders, ...rest } = options
   const raw = db()
   return {
     async createClient(context) {
@@ -113,8 +119,15 @@ export function database(options: Omit<Options, "storage"> = {}): DatabaseProvid
       const storage = await context.nativeDatabaseProvider.open(context.actorId)
       const client = await raw.createClient(context)
       const { PromiseSdk } = await import("../../sdk/src/promise")
-      const profile = make({ ...options, storage })
-      const opencode = await PromiseSdk.create(profile.options, { overrides: profile.replacements })
+      const profile = make({ ...rest, storage })
+      const overrides =
+        workspaceProviders === undefined
+          ? profile.replacements
+          : [
+              ...profile.replacements,
+              WorkspaceDriver.node.replace(WorkspaceDriver.registryNode(workspaceProviders)),
+            ]
+      const opencode = await PromiseSdk.create(profile.options, { overrides })
       return {
         ...client,
         storage,

@@ -2,6 +2,7 @@ export * as PromiseSdk from "./promise"
 
 import { OpenCode, type OpenCodeClient } from "@opencode/client"
 import type { Plugin } from "@opencode/plugin"
+import type { Workspace } from "@opencode/core/workspace"
 import { Session } from "@opencode/schema/session"
 import { Effect, Schema } from "effect"
 import { EmbeddedHost } from "./internal/host"
@@ -25,6 +26,18 @@ export interface CreateOptions extends Omit<EmbeddedHost.CreateOptions, "workspa
 export type Interface = Omit<OpenCodeClient, "plugin"> & {
   readonly sessions: OpenCodeClient["session"]
   readonly events: OpenCodeClient["event"]
+  /** Workspace lifecycle bypasses the wire client; it runs on the embedded host directly. */
+  readonly workspace: {
+    readonly create: (
+      input: Parameters<Workspace.Interface["create"]>[0],
+    ) => Promise<Effect.Success<ReturnType<Workspace.Interface["create"]>>>
+    readonly provision: (input: {
+      readonly workspaceID: Workspace.ID
+    }) => Promise<Effect.Success<ReturnType<Workspace.Interface["provision"]>>>
+    readonly destroy: (input: {
+      readonly workspaceID: Workspace.ID
+    }) => Promise<Effect.Success<ReturnType<Workspace.Interface["destroy"]>>>
+  }
   readonly plugin: ((plugin: Plugin.Plugin) => Promise<void>) & OpenCodeClient["plugin"]
   readonly close: () => Promise<void>
   readonly [Symbol.asyncDispose]: () => Promise<void>
@@ -62,6 +75,14 @@ export async function create(options: CreateOptions = {}, embed: EmbeddedHost.Em
     ...client,
     sessions: client.session,
     events: client.event,
+    workspace: {
+      create: (input: Parameters<Workspace.Interface["create"]>[0]) =>
+        host.runtime.runPromise(host.workspace.create(input)),
+      provision: ({ workspaceID }: { readonly workspaceID: Workspace.ID }) =>
+        host.runtime.runPromise(host.workspace.provision(workspaceID)),
+      destroy: ({ workspaceID }: { readonly workspaceID: Workspace.ID }) =>
+        host.runtime.runPromise(host.workspace.destroy(workspaceID)),
+    },
     plugin: Object.assign(register, client.plugin),
     close: host.close,
     [Symbol.asyncDispose]: host.close,
