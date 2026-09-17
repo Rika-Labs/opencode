@@ -1,4 +1,3 @@
-export { Actors } from "./actors.ts"
 export { RivetAppHost } from "./app-host.ts"
 export { E2BWorkspace } from "./e2b-workspace.ts"
 export { OpenCodeRivet } from "./host.ts"

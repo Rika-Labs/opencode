@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
-import { $ } from "bun"
+import { $, Glob } from "bun"
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { existsSync } from "node:fs"
+import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
@@ -10,49 +11,162 @@ const channel = process.env.OPENCODE_CHANNEL ?? "next"
 const publish = process.argv.includes("--publish")
 const dest = join(root, "dist", "rikalabs-opencode")
 
-const internals = [
-  "schema",
-  "protocol",
-  "util",
-  "plugin",
-  "client",
-  "server",
-  "core",
-  "sdk",
-  "cli",
-  "rivet",
-  "apps-host",
-]
+const specifierRe = /\b(?:from|import|require)\s*\(?\s*["']@opencode\/([a-z0-9-]+)/g
+
+const internals = await (async () => {
+  const seen = new Set<string>()
+  const queue = ["sdk", "rivet", "cli", "apps-host"]
+  const glob = new Glob("**/*.{ts,tsx,mts}")
+  while (queue.length > 0) {
+    const name = queue.pop()!
+    if (seen.has(name)) continue
+    seen.add(name)
+    const src = join(root, "packages", name, "src")
+    if (!existsSync(src)) continue
+    for await (const file of glob.scan({ cwd: src })) {
+      const text = await readFile(join(src, file), "utf8")
+      for (const match of text.matchAll(specifierRe)) queue.push(match[1]!)
+    }
+  }
+  return [...seen].sort()
+})()
 
 await rm(dest, { recursive: true, force: true })
 await mkdir(join(dest, "src"), { recursive: true })
 
 for (const name of internals) {
-  await cp(join(root, "packages", name), join(dest, "packages", name), {
+  const from = join(root, "packages", name)
+  const to = join(dest, "packages", name)
+  await cp(join(from, "src"), join(to, "src"), {
     recursive: true,
     filter: (source) => !source.includes("node_modules") && !source.includes(".turbo"),
   })
+  await cp(join(from, "package.json"), join(to, "package.json"))
+}
+
+const exportsCache = new Map<string, Record<string, unknown>>()
+const exportsOf = async (pkg: string) => {
+  const cached = exportsCache.get(pkg)
+  if (cached) return cached
+  const raw = await readFile(join(dest, "packages", pkg, "package.json"), "utf8")
+  const parsed = (JSON.parse(raw) as { exports?: Record<string, unknown> }).exports ?? {}
+  exportsCache.set(pkg, parsed)
+  return parsed
+}
+
+const exportTarget = (value: unknown) => {
+  if (typeof value === "string") return value
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>
+    const picked = record.import ?? record.default ?? record.types
+    if (typeof picked === "string") return picked
+  }
+  return undefined
+}
+
+const resolveSpecifier = async (pkg: string, sub: string | undefined): Promise<string> => {
+  const base = `packages/${pkg}`
+  const exports = await exportsOf(pkg)
+  if (!sub || sub === "/") {
+    const dot = exportTarget(exports["."])
+    if (dot) return `${base}/${dot.slice(2)}`
+    return `${base}/src/${pkg === "core" ? "app" : "index"}.ts`
+  }
+  const clean = sub.slice(1).replace(/\/$/, "")
+  const exact = exportTarget(exports[`./${clean}`])
+  if (exact && existsSync(join(dest, base, exact.slice(2)))) return `${base}/${exact.slice(2)}`
+  const candidates: string[] = []
+  const wildcards = Object.entries(exports)
+    .map(([key, value]) => ({ key, target: exportTarget(value) }))
+    .filter(
+      (entry): entry is { key: string; target: string } =>
+        entry.target !== undefined && entry.key.includes("*") && entry.target.includes("*"),
+    )
+    .filter(({ key }) => {
+      const prefix = key.slice(2, key.indexOf("*"))
+      const suffix = key.slice(key.indexOf("*") + 1)
+      return clean.startsWith(prefix) && clean.endsWith(suffix)
+    })
+    .sort((a, b) => b.key.indexOf("*") - a.key.indexOf("*"))
+  for (const { key, target } of wildcards) {
+    const prefix = key.slice(2, key.indexOf("*"))
+    const suffix = key.slice(key.indexOf("*") + 1)
+    candidates.push(target.slice(2).replace("*", clean.slice(prefix.length, clean.length - suffix.length)))
+  }
+  candidates.push(
+    ...(clean === "package.json"
+      ? ["package.json"]
+      : [
+          `src/${clean}`,
+          `src/${clean}.ts`,
+          `src/${clean}.tsx`,
+          `src/${clean}.mts`,
+          `src/${clean}.json`,
+          `src/${clean}/index.ts`,
+          `src/${clean}/index.tsx`,
+        ]),
+  )
+  for (const candidate of candidates) {
+    if (existsSync(join(dest, base, candidate))) return `${base}/${candidate}`
+  }
+  throw new Error(`Cannot resolve specifier @opencode/${pkg}${sub ?? ""} inside packed sources`)
+}
+
+const rewriteRe = /(\b(?:from|import|require)\s*\(?\s*)(["'])@opencode\/([a-z0-9-]+)(\/[^"'\s]*)?["']/g
+
+const rewriteFile = async (file: string) => {
+  const text = await readFile(file, "utf8")
+  if (!text.includes("@opencode/")) return
+  const matches = [...text.matchAll(rewriteRe)]
+  if (matches.length === 0) return
+  const replacements = await Promise.all(
+    matches.map(async (match) => {
+      const target = await resolveSpecifier(match[3]!, match[4])
+      let rel = relative(dirname(file), join(dest, target))
+      if (!rel.startsWith(".")) rel = `./${rel}`
+      return {
+        start: match.index! + match[1].length + 1,
+        end: match.index! + match[0].length - 1,
+        rel,
+      }
+    }),
+  )
+  let out = ""
+  let cursor = 0
+  for (const part of replacements) {
+    out += text.slice(cursor, part.start) + part.rel
+    cursor = part.end
+  }
+  out += text.slice(cursor)
+  await writeFile(file, out)
+}
+
+{
+  const glob = new Glob("**/*.{ts,tsx,mts}")
+  const files: string[] = []
+  for await (const file of glob.scan({ cwd: dest })) files.push(join(dest, file))
+  for (const file of files) await rewriteFile(file)
 }
 
 await writeFile(
   join(dest, "src", "sdk.ts"),
-  `export * from "@opencode/sdk"\n`,
+  `export * from "../packages/sdk/src/index.ts"\n`,
 )
 await writeFile(
   join(dest, "src", "sdk-effect.ts"),
-  `export * from "@opencode/sdk/effect"\n`,
+  `export * from "../packages/sdk/src/effect/index.ts"\n`,
 )
 await writeFile(
   join(dest, "src", "rivet.ts"),
-  `export * from "@opencode/rivet"\n`,
+  `export * from "../packages/rivet/src/index.ts"\n`,
 )
 await writeFile(
   join(dest, "src", "cli.ts"),
-  `export * from "@opencode/cli/run"\n`,
+  `export * from "../packages/cli/src/run/index.ts"\n`,
 )
 await writeFile(
   join(dest, "src", "apps-host.ts"),
-  `export * from "@opencode/apps-host"\n`,
+  `export * from "../packages/apps-host/src/index.ts"\n`,
 )
 
 const pkg = {
@@ -76,34 +190,9 @@ const pkg = {
   dependencies: {
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/sdk": "1.29.0",
-    "@rivetkit/effect": "2.3.17",
     effect: "4.0.0-rc.112",
     "effect-sandbox": "0.2.0",
     rivetkit: "2.3.17",
-  },
-  imports: {
-    "@opencode/apps-host": "./packages/apps-host/src/index.ts",
-    "@opencode/apps-host/*": "./packages/apps-host/src/*.ts",
-    "@opencode/cli": "./packages/cli/src/index.ts",
-    "@opencode/cli/*": "./packages/cli/src/*.ts",
-    "@opencode/client": "./packages/client/src/index.ts",
-    "@opencode/client/*": "./packages/client/src/*.ts",
-    "@opencode/core": "./packages/core/src/app.ts",
-    "@opencode/core/*": "./packages/core/src/*.ts",
-    "@opencode/plugin": "./packages/plugin/src/index.ts",
-    "@opencode/plugin/*": "./packages/plugin/src/*.ts",
-    "@opencode/protocol": "./packages/protocol/src/index.ts",
-    "@opencode/protocol/*": "./packages/protocol/src/*.ts",
-    "@opencode/rivet": "./packages/rivet/src/index.ts",
-    "@opencode/rivet/*": "./packages/rivet/src/*.ts",
-    "@opencode/schema": "./packages/schema/src/index.ts",
-    "@opencode/schema/*": "./packages/schema/src/*.ts",
-    "@opencode/sdk": "./packages/sdk/src/index.ts",
-    "@opencode/sdk/*": "./packages/sdk/src/*.ts",
-    "@opencode/server": "./packages/server/src/index.ts",
-    "@opencode/server/*": "./packages/server/src/*.ts",
-    "@opencode/util": "./packages/util/src/index.ts",
-    "@opencode/util/*": "./packages/util/src/*.ts",
   },
 }
 
