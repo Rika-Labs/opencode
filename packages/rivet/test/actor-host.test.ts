@@ -47,6 +47,7 @@ async function qualify() {
   const { actor, setup } = await import("rivetkit")
   const { createClient } = await import("rivetkit/client")
   const { OpenCodeRivet } = await import("../src/host")
+  const { Effect } = await import("effect")
   const require = createRequire(import.meta.resolve("rivetkit"))
   const { getEnginePath } = require("@rivetkit/engine-cli") as { getEnginePath(): string }
   const port = 30000 + Math.floor(Math.random() * 2000) * 10
@@ -72,7 +73,18 @@ async function qualify() {
   const errors = new Response(engine.stderr).text()
   const asleep = Promise.withResolvers<void>()
   const probe = actor({
-    db: OpenCodeRivet.database({ config: { content: "{}" }, models: { fetch: false } }),
+    db: OpenCodeRivet.database({
+      config: { content: "{}" },
+      models: { fetch: false },
+      workspaceProviders: {
+        probe: {
+          create: () => Effect.succeed({ binding: {} }),
+          connect: () => Effect.die(new Error("probe connect is not implemented")),
+          suspendForIdle: () => Effect.void,
+          destroy: () => Effect.void,
+        },
+      },
+    }),
     createVars: () => ({ generation: crypto.randomUUID() }),
     onSleep: () => asleep.resolve(),
     actions: {
@@ -92,6 +104,10 @@ async function qualify() {
           actorID: c.actorId,
           sqlite: await c.db.storage.execute("SELECT sqlite_version() AS version"),
         }
+      },
+      async workspace(c, provider: string) {
+        const workspaceID = await c.db.opencode.workspace.create({ provider })
+        return { workspaceID }
       },
       sleep(c) { c.sleep() },
     },
@@ -120,6 +136,9 @@ async function qualify() {
     await registry.startAndWait()
     const handle = client.probe.getOrCreate([crypto.randomUUID()])
     const first = await handle.create()
+    const workspace = await handle.workspace("probe")
+    expect(workspace.workspaceID).toBeString()
+    await expect(handle.workspace("missing")).rejects.toThrow()
     const before = await handle.read(first.session.id)
     expect(before.inbox).toHaveLength(1)
     await handle.sleep()

@@ -1,4 +1,5 @@
 export * as OpenCode from "./opencode"
+export * as PromiseSdk from "./promise"
 export * as Tool from "./tool"
 
 export { ClientError } from "@opencode/client"

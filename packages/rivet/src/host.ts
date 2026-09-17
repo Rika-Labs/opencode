@@ -97,7 +97,6 @@ export interface ActorClient extends RawAccess {
 }
 
 export interface DatabaseOptions extends Omit<Options, "storage"> {
-  /** Pre-built drivers; PromiseSdk strips workspaceProviders, so they arrive as an override. */
   readonly workspaceProviders?: Readonly<Record<string, WorkspaceDriver.Interface>>
 }
 
@@ -106,8 +105,6 @@ export interface DatabaseOptions extends Omit<Options, "storage"> {
  * NAPI sqlite: "local" with Core's `workerd` condition (pragma guards/stubs).
  * Default Bun Core enables WAL and Rivet 2.3.17 fails reopening after sleep
  * with SQLite code 14. This does not qualify the Cloudflare runtime.
- * The relative Promise SDK import is a repository seam; it needs a package
- * export before this provider can be published.
  */
 export function database(options: DatabaseOptions = {}): DatabaseProvider<ActorClient> {
   const { workspaceProviders, ...rest } = options
@@ -118,16 +115,12 @@ export function database(options: DatabaseOptions = {}): DatabaseProvider<ActorC
         throw new Error("OpenCodeRivet requires the actor runtime's nativeDatabaseProvider")
       const storage = await context.nativeDatabaseProvider.open(context.actorId)
       const client = await raw.createClient(context)
-      const { PromiseSdk } = await import("../../sdk/src/promise")
+      const { PromiseSdk } = await import("@opencode/sdk")
       const profile = make({ ...rest, storage })
-      const overrides =
-        workspaceProviders === undefined
-          ? profile.replacements
-          : [
-              ...profile.replacements,
-              WorkspaceDriver.node.replace(WorkspaceDriver.registryNode(workspaceProviders)),
-            ]
-      const opencode = await PromiseSdk.create(profile.options, { overrides })
+      const opencode = await PromiseSdk.create(
+        { ...profile.options, workspaceProviders },
+        { overrides: profile.replacements },
+      )
       return {
         ...client,
         storage,
