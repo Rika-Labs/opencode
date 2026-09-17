@@ -78,7 +78,7 @@ const pkg = {
     "@modelcontextprotocol/sdk": "1.29.0",
     "@rivetkit/effect": "2.3.17",
     effect: "4.0.0-rc.112",
-    "effect-sandbox": "0.1.0",
+    "effect-sandbox": "0.2.0",
     rivetkit: "2.3.17",
   },
   imports: {

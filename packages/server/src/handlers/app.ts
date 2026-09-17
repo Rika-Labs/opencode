@@ -145,7 +145,7 @@ export const AppHandler = HttpApiBuilder.group(Api, "server.app", (handlers) =>
               }),
             )
             if (!resolved) return HttpServerResponse.empty({ status: 404 })
-            const body = yield* resolved.read.pipe(Effect.catch(() => Effect.succeed(undefined)))
+            const body = yield* resolved.read.pipe(Effect.orElseSucceed(() => undefined))
             if (!body) return HttpServerResponse.empty({ status: 404 })
             const headers: Record<string, string> = {
               "cache-control":

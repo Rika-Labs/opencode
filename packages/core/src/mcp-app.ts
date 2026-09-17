@@ -27,11 +27,11 @@ export type Status = App.Status
 export type Csp = App.Csp
 export type Permissions = App.Permissions
 
-export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("AppV2.NotFoundError", {
+export class NotFoundError extends Schema.TaggedError<NotFoundError>()("AppV2.NotFoundError", {
   id: Schema.String,
 }) {}
 
-export class AssetError extends Schema.TaggedErrorClass<AssetError>()("AppV2.AssetError", {
+export class AssetError extends Schema.TaggedError<AssetError>()("AppV2.AssetError", {
   id: Schema.String,
   message: Schema.String,
 }) {}
@@ -154,7 +154,7 @@ const layer = Layer.effect(
     const load = Effect.fn("AppV2.load")(function* (record: SourceRecord) {
       const content = yield* fs
         .readFileStringSafe(path.join(record.directory, "app.json"))
-        .pipe(Effect.catch(() => Effect.succeed(undefined)))
+        .pipe(Effect.orElseSucceed(() => undefined))
       if (content === undefined) return { ...record, error: "missing or unreadable app.json" } satisfies Loaded
       const manifest = decodeManifest(content).valueOrUndefined
       if (!manifest) {

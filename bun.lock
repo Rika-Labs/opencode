@@ -113,6 +113,7 @@
     },
     "packages/apps-host": {
       "name": "@opencode/apps-host",
+      "version": "2.0.5",
       "dependencies": {
         "@modelcontextprotocol/ext-apps": "1.7.5",
         "@modelcontextprotocol/sdk": "1.29.0",
@@ -694,13 +695,15 @@
       "dependencies": {
         "@opencode/core": "workspace:*",
         "@opencode/schema": "workspace:*",
+        "@opencode/sdk": "workspace:*",
         "@opencode/util": "workspace:*",
         "@rivetkit/effect": "2.3.17",
         "effect": "catalog:",
-        "effect-sandbox": "0.1.0",
+        "effect-sandbox": "0.2.0",
         "rivetkit": "2.3.17",
       },
       "devDependencies": {
+        "@rivetkit/engine-cli": "2.3.17",
         "@tsconfig/bun": "catalog:",
         "@types/bun": "catalog:",
         "@typescript/native-preview": "catalog:",
@@ -1125,6 +1128,7 @@
     "protobufjs",
   ],
   "patchedDependencies": {
+    "@rivetkit/effect@2.3.17": "patches/@rivetkit%2Feffect@2.3.17.patch",
     "@pierre/trees@1.0.0-beta.4": "patches/@pierre%2Ftrees@1.0.0-beta.4.patch",
     "@tanstack/virtual-core@3.17.8": "patches/@tanstack%2Fvirtual-core@3.17.8.patch",
     "ghostty-web@github:anomalyco/ghostty-web#83c0a07": "patches/ghostty-web@0.3.0.patch",
@@ -2733,6 +2737,18 @@
 
     "@remix-run/router": ["@remix-run/router@1.9.0", "", {}, "sha512-bV63itrKBC0zdT27qYm6SDZHlkXwFL1xMBuhkn+X7l0+IIhNaH5wuuvZKp6eKhCD4KFhujhfhCT1YxXW6esUIA=="],
 
+    "@rikalabs/distilled-cloudflare": ["@rikalabs/distilled-cloudflare@1.0.0-rc.7", "", { "dependencies": { "@rikalabs/distilled-core": "1.0.0-rc.7" }, "peerDependencies": { "effect": ">=4.0.0-rc.112 || >=4.0.0" } }, "sha512-oU808kMAHRP/X1oKJH7eRsgpGDyv7K+787E7xJFak2BkznpyQ+dyFxyylXy9gxmP6l6XYTsVKq6MIY79Tf6lWg=="],
+
+    "@rikalabs/distilled-core": ["@rikalabs/distilled-core@1.0.0-rc.7", "", { "dependencies": { "graphql": "16.11.0" }, "peerDependencies": { "effect": ">=4.0.0-rc.112 || >=4.0.0" } }, "sha512-i+Ib1a5wPG4rtoBGOw+mZKmrkEDzTqn5pg5X+3XTDeqtXlUVfwbB3IsmmwUF0UISphdG02LU3nGLi9wY5JZvrA=="],
+
+    "@rikalabs/distilled-daytona": ["@rikalabs/distilled-daytona@1.0.0-rc.7", "", { "dependencies": { "@rikalabs/distilled-core": "1.0.0-rc.7" }, "peerDependencies": { "effect": ">=4.0.0-rc.112 || >=4.0.0" } }, "sha512-JJBJki+PP+ccEoea5h/qGsGafC63f5qexf7w6hTUYuYurESERgljzkgYI8fQsraOBwpY7OnWHzgGtLRlaMhwMA=="],
+
+    "@rikalabs/distilled-e2b": ["@rikalabs/distilled-e2b@1.0.0-rc.7", "", { "dependencies": { "@rikalabs/distilled-core": "1.0.0-rc.7" }, "peerDependencies": { "effect": ">=4.0.0-rc.112 || >=4.0.0" } }, "sha512-YkR73R6iAtZB4hkP2ISUvqSDnEKuAZi9WoUKyA8HnJvgc3i5odjxOd0iAb83dub1/9VzBQ3d+eILV0t9ZxBiIQ=="],
+
+    "@rikalabs/distilled-modal": ["@rikalabs/distilled-modal@1.0.0-rc.7", "", { "dependencies": { "@rikalabs/distilled-core": "1.0.0-rc.7" }, "peerDependencies": { "effect": ">=4.0.0-rc.112 || >=4.0.0" } }, "sha512-9EZlHQHz+VFePsKmAjeqFTKh695npOTIvqlS+AegGyaYuDJRZ8/eonqdFEg3CFWsfwL6ka1iQSHprVB3s0wZSg=="],
+
+    "@rikalabs/distilled-vercel": ["@rikalabs/distilled-vercel@1.0.0-rc.7", "", { "dependencies": { "@rikalabs/distilled-core": "1.0.0-rc.7" }, "peerDependencies": { "effect": ">=4.0.0-rc.112 || >=4.0.0" } }, "sha512-kzdh0J4Su/fAXbW4YebBzarj0zXXsAwouIjcmM3UZBVnwUwIQl8NMX6/kw0cFIzQrV2+5APsOXOoDHMvV6AyAQ=="],
+
     "@rikalabs/opencode": ["@rikalabs/opencode@workspace:packages/rikalabs-opencode"],
 
     "@rivet-dev/agent-os-core": ["@rivet-dev/agent-os-core@0.1.1", "", { "dependencies": { "@rivet-dev/agent-os-posix": "0.1.0", "@rivet-dev/agent-os-python": "0.1.0", "@secure-exec/core": "^0.2.1", "@secure-exec/nodejs": "^0.2.1", "@secure-exec/v8": "^0.2.1", "croner": "^10.0.1", "long-timeout": "^0.1.1", "secure-exec": "^0.2.1" } }, "sha512-Uw5jr+gUXDY7TDUFqlypjGe1BD2KL9kTHPNo/f1iNS1R+l9IWuvT+FF/MXsLOEkc3fB06OPVu2ZvUuNwp9MpLQ=="],
@@ -4131,7 +4147,7 @@
 
     "effect": ["effect@4.0.0-rc.112", "", { "dependencies": { "fast-check": "^4.9.0", "msgpackr": "^2.0.5" } }, "sha512-wXxwuh1Ywnv4cPRM3Wfa0vDwuOHnZ1TsTgHJkG9XgzND6inhBH9n1vBxhg3iIXOia/OrpmvVmd3lrD4vq6bF3A=="],
 
-    "effect-sandbox": ["effect-sandbox@0.1.0", "", { "peerDependencies": { "@rikalabs/distilled-cloudflare": "1.0.0-rc.7", "@rikalabs/distilled-daytona": "1.0.0-rc.7", "@rikalabs/distilled-e2b": "1.0.0-rc.7", "@rikalabs/distilled-modal": "1.0.0-rc.7", "@rikalabs/distilled-vercel": "1.0.0-rc.7", "effect": "4.0.0-rc.112" }, "optionalPeers": ["@rikalabs/distilled-cloudflare", "@rikalabs/distilled-daytona", "@rikalabs/distilled-e2b", "@rikalabs/distilled-modal", "@rikalabs/distilled-vercel"] }, "sha512-9N+ECDbAEgZFRTyR9UpBtJDC2n5CtYVmEq1TxPw+GZuOkM6e/borip6NC9Xyi7l6ki1m5NBMvwZtdLz2esvBkg=="],
+    "effect-sandbox": ["effect-sandbox@0.2.0", "", { "dependencies": { "@rikalabs/distilled-cloudflare": "1.0.0-rc.7", "@rikalabs/distilled-daytona": "1.0.0-rc.7", "@rikalabs/distilled-e2b": "1.0.0-rc.7", "@rikalabs/distilled-modal": "1.0.0-rc.7", "@rikalabs/distilled-vercel": "1.0.0-rc.7" }, "peerDependencies": { "effect": "4.0.0-rc.112" } }, "sha512-OGfwtLwEQZkJRA1Fdri8AeCuJiE8zjkN5fkfFby2P8KFMnf90yJiVrkb5ae0rIxMea0clDFAN7JKW5VJShFA7g=="],
 
     "ejs": ["ejs@3.1.10", "", { "dependencies": { "jake": "^10.8.5" }, "bin": { "ejs": "bin/cli.js" } }, "sha512-UeJmFfOrAQS8OJWPZ4qtgHyWExa088/MtK5UEyoJGFH67cDEXkZSviOiKRCZ4Xij0zxI3JECgYs3oKx+AizQBA=="],
 
@@ -6750,6 +6766,8 @@
     "@protobuf-ts/plugin/typescript": ["typescript@3.9.10", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-w6fIxVE/H1PkLKcCPsFqKE7Kv7QUwhU8qQY2MueZXWx5cPZdwFupLgKK3vntcK98BtNHZtAF4LA/yl2a7k8R6Q=="],
 
     "@puppeteer/browsers/yargs": ["yargs@18.1.0", "", { "dependencies": { "cliui": "^9.0.1", "escalade": "^3.1.1", "get-caller-file": "^2.0.5", "string-width": "^8.2.1", "y18n": "^5.0.5", "yargs-parser": "^22.0.0" } }, "sha512-2rAgRKu54VsHkqI0/tYkmluGXHD4KW7yZoycuqDQ15QOTnc2VVfy0nN/1eMhnQLO00A+dwtK20xuCnc1YGeUyg=="],
+
+    "@rikalabs/distilled-core/graphql": ["graphql@16.11.0", "", {}, "sha512-mS1lbMsxgQj6hge1XZ6p7GPhbrtFwUFYi3wRzXAC/FmYnyXMTvvI3td3rjmQ2u8ewXueaSvRPWaEcgVVOT9Jnw=="],
 
     "@rollup/pluginutils/estree-walker": ["estree-walker@2.0.2", "", {}, "sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w=="],
 
